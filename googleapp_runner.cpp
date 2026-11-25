@@ -257,7 +257,7 @@ Window {
 )QML";
 
 int main(int argc, char *argv[]) {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --password-store=basic");
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --password-store=basic --disable-blink-features=AutomationControlled");
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);
@@ -271,6 +271,7 @@ int main(int argc, char *argv[]) {
     QCommandLineOption urlOpt("url", "Application web URL", "url", "https://google.com");
     QCommandLineOption iconOpt("icon", "Application icon file or name", "icon", "");
     QCommandLineOption profileDirOpt("profile-dir", "Custom persistent profile directory path", "path", "");
+    QCommandLineOption uaOpt("user-agent", "Custom HTTP User-Agent string", "ua", "");
     QCommandLineOption showHeaderOpt("show-web-header", "Keep the web UI top bar visible by default");
 
     parser.addOption(slugOpt);
@@ -278,6 +279,7 @@ int main(int argc, char *argv[]) {
     parser.addOption(urlOpt);
     parser.addOption(iconOpt);
     parser.addOption(profileDirOpt);
+    parser.addOption(uaOpt);
     parser.addOption(showHeaderOpt);
 
     parser.process(app);
@@ -332,7 +334,12 @@ int main(int argc, char *argv[]) {
     profile.setPersistentCookiesPolicy(QQuickWebEngineProfile::AllowPersistentCookies);
     profile.setPersistentPermissionsPolicy(QQuickWebEngineProfile::PersistentPermissionsPolicy::StoreOnDisk);
     profile.setHttpCacheType(QQuickWebEngineProfile::DiskHttpCache);
-    profile.setHttpUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+    QString userAgent = parser.value(uaOpt);
+    if (userAgent.isEmpty()) {
+        // Modern Firefox User-Agent: bypasses Google's embedded WebView / "This browser or app may not be secure" block
+        userAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0";
+    }
+    profile.setHttpUserAgent(userAgent);
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("webProfile", &profile);
