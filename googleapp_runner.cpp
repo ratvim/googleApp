@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QStandardPaths>
+#include <QProcess>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <iostream>
 
@@ -76,8 +77,8 @@ Window {
             RowLayout {
                 spacing: 8
                 Image {
-                    source: appIcon ? (appIcon.indexOf("/") === 0 ? "file://" + appIcon : appIcon) : ""
-                    visible: appIcon !== ""
+                    source: (typeof appIcon !== "undefined" && appIcon && appIcon !== "") ? (appIcon.indexOf("/") === 0 ? "file://" + appIcon : appIcon) : undefined
+                    visible: typeof appIcon !== "undefined" && appIcon !== ""
                     Layout.preferredWidth: 20
                     Layout.preferredHeight: 20
                     fillMode: Image.PreserveAspectFit
@@ -160,7 +161,7 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         profile: webProfile
-        url: appUrl
+        url: (typeof appUrl !== "undefined" && appUrl && appUrl !== "") ? appUrl : undefined
 
         settings.javascriptEnabled: true
         settings.pluginsEnabled: true
@@ -291,8 +292,25 @@ int main(int argc, char *argv[]) {
     app.setDesktopFileName(desktopId);
     app.setApplicationName(name);
 
-    if (!icon.isEmpty() && QFile::exists(icon)) {
-        app.setWindowIcon(QIcon(icon));
+    QString resolvedIcon = icon;
+    if (!icon.isEmpty()) {
+        if (QFile::exists(icon)) {
+            app.setWindowIcon(QIcon(icon));
+            resolvedIcon = icon;
+        } else {
+            QIcon themeIcon = QIcon::fromTheme(icon);
+            if (!themeIcon.isNull()) {
+                app.setWindowIcon(themeIcon);
+            }
+            QProcess proc;
+            proc.start("kiconfinder6", QStringList() << icon);
+            if (proc.waitForFinished(800) && proc.exitCode() == 0) {
+                QString outPath = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+                if (!outPath.isEmpty() && QFile::exists(outPath)) {
+                    resolvedIcon = outPath;
+                }
+            }
+        }
     }
 
     // Standardized persistent profile & cache directories
@@ -321,7 +339,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("appSlug", slug);
     engine.rootContext()->setContextProperty("appName", name);
     engine.rootContext()->setContextProperty("appUrl", url);
-    engine.rootContext()->setContextProperty("appIcon", icon);
+    engine.rootContext()->setContextProperty("appIcon", resolvedIcon);
     engine.rootContext()->setContextProperty("initialHideWebHeader", hideWebHeader);
     engine.rootContext()->setContextProperty("storageDir", storageDir);
     engine.rootContext()->setContextProperty("cacheDir", cacheDir);

@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QAbstractItemView,
+    QFileDialog,
 )
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import (
@@ -139,13 +140,28 @@ CATEGORY_MAP = {
     "Development": "Development;Network;WebBrowser;",
 }
 
+KNOWN_SYSTEM_ICON_ALIASES = {
+    "google-calendar": ["google-calendar", "calendar", "korganizer"],
+    "google-gmail": ["google-gmail", "mail-client", "internet-mail", "email"],
+    "google-drive": ["google-drive", "folder-google-drive", "drive-harddisk"],
+    "google-keep": ["google-keep", "notes", "accessories-text-editor"],
+    "youtube": ["youtube", "video-player"],
+    "youtube-music": ["youtube-music", "multimedia-audio-player"],
+    "gemini": ["gemini", "assistant"],
+    "google-chat": ["google-chat", "chat", "instant-messaging"],
+    "google-photos": ["google-photos", "photos", "image-viewer"],
+    "google-maps": ["google-maps", "maps", "app.organicmaps.desktop"],
+    "google-docs": ["google-docs", "x-office-document"],
+    "google-sheets": ["google-sheets", "x-office-spreadsheet"],
+}
+
 
 class WebAppManager(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Web App Manager")
-        self.setMinimumSize(780, 720)
+        self.setMinimumSize(800, 740)
 
         self.data_dir = os.path.expanduser("~/.local/share")
         self.desktop_dir = os.path.join(self.data_dir, "applications")
@@ -416,17 +432,51 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
         form_grid.addWidget(QLabel("Application Name:"), 0, 0)
         self.input_name = QLineEdit()
         self.input_name.setPlaceholderText("e.g. ChatGPT, Notion, Slack, Spotify, Reddit")
+        self.input_name.textChanged.connect(self.update_icon_preview)
         form_grid.addWidget(self.input_name, 0, 1)
 
         form_grid.addWidget(QLabel("Web URL:"), 1, 0)
         self.input_url = QLineEdit()
         self.input_url.setPlaceholderText("e.g. https://chatgpt.com")
+        self.input_url.textChanged.connect(self.update_icon_preview)
         form_grid.addWidget(self.input_url, 1, 1)
 
         form_grid.addWidget(QLabel("Menu Category:"), 2, 0)
         self.category_combo = QComboBox()
         self.category_combo.addItems(list(CATEGORY_MAP.keys()))
         form_grid.addWidget(self.category_combo, 2, 1)
+
+        # Icon Selection & Preview Row
+        form_grid.addWidget(QLabel("Application Icon:"), 3, 0)
+        icon_row = QHBoxLayout()
+        icon_row.setSpacing(8)
+
+        self.icon_preview = QLabel("🌐")
+        self.icon_preview.setFixedSize(42, 42)
+        self.icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_preview.setStyleSheet("""
+            background-color: #181a1f;
+            border: 1px solid #3d4455;
+            border-radius: 6px;
+            font-size: 20px;
+        """)
+        icon_row.addWidget(self.icon_preview)
+
+        self.input_icon_path = QLineEdit()
+        self.input_icon_path.setPlaceholderText("Auto: system icon first, then web favicon, or select custom path...")
+        self.input_icon_path.textChanged.connect(self.update_icon_preview)
+        icon_row.addWidget(self.input_icon_path)
+
+        browse_btn = QPushButton("📁 Browse...")
+        browse_btn.clicked.connect(self.browse_custom_icon)
+        icon_row.addWidget(browse_btn)
+
+        auto_btn = QPushButton("↺ Auto")
+        auto_btn.setToolTip("Reset to auto-detection (System icon -> Web favicon)")
+        auto_btn.clicked.connect(self.reset_icon_to_auto)
+        icon_row.addWidget(auto_btn)
+
+        form_grid.addLayout(icon_row, 3, 1)
 
         create_layout.addLayout(form_grid)
 
@@ -492,6 +542,55 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
         presets_group.setLayout(presets_layout)
         layout.addWidget(presets_group)
 
+    def browse_custom_icon(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Application Icon",
+            os.path.expanduser("~"),
+            "Images (*.png *.svg *.ico *.jpg *.jpeg *.webp);;All Files (*)",
+        )
+        if file_path:
+            self.input_icon_path.setText(file_path)
+            self.update_icon_preview()
+
+    def reset_icon_to_auto(self):
+        self.input_icon_path.clear()
+        self.update_icon_preview()
+
+    def update_icon_preview(self):
+        custom_path = self.input_icon_path.text().strip()
+        if custom_path:
+            expanded = os.path.expanduser(custom_path)
+            if os.path.isfile(expanded):
+                pix = QPixmap(expanded)
+                if not pix.isNull():
+                    self.icon_preview.setPixmap(
+                        pix.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    )
+                    self.icon_preview.setText("")
+                    return
+
+        name = self.input_name.text().strip()
+        if name:
+            slug = self.make_slug(name)
+            sys_name, sys_path = self.find_system_icon(slug, name)
+            if sys_path and os.path.isfile(sys_path):
+                pix = QPixmap(sys_path)
+                if not pix.isNull():
+                    self.icon_preview.setPixmap(
+                        pix.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    )
+                    self.icon_preview.setText("")
+                    return
+            elif sys_name and QIcon.hasThemeIcon(sys_name):
+                self.icon_preview.setPixmap(QIcon.fromTheme(sys_name).pixmap(32, 32))
+                self.icon_preview.setText("")
+                return
+
+        # Default fallback icon
+        self.icon_preview.setPixmap(QPixmap())
+        self.icon_preview.setText("🌐")
+
     def setup_manage_tab(self):
         layout = QVBoxLayout(self.tab_manage)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -532,6 +631,11 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
             icon_item = QTableWidgetItem(f"  {app['name']}")
             if app["icon_path"] and os.path.isfile(app["icon_path"]):
                 icon_item.setIcon(QIcon(app["icon_path"]))
+            elif app["icon_name"] and QIcon.hasThemeIcon(app["icon_name"]):
+                icon_item.setIcon(QIcon.fromTheme(app["icon_name"]))
+            else:
+                icon_item.setIcon(QIcon.fromTheme("internet-web-browser"))
+
             icon_item.setFont(QFont("Sans Serif", 11, QFont.Weight.Bold))
             self.table.setItem(row, 0, icon_item)
 
@@ -602,13 +706,28 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
                     except OSError:
                         pass
 
-                icon_path = os.path.join(self.icon_dir, f"{icon_name}.png")
+                icon_path = ""
+                # Check custom/downloaded file
+                png_path = os.path.join(self.icon_dir, f"{icon_name}.png")
+                svg_path = os.path.join(self.icon_dir, f"{icon_name}.svg")
+                if os.path.isfile(png_path):
+                    icon_path = png_path
+                elif os.path.isfile(svg_path):
+                    icon_path = svg_path
+                elif os.path.isfile(icon_name):
+                    icon_path = icon_name
+                elif shutil.which("kiconfinder6"):
+                    res = subprocess.run(["kiconfinder6", icon_name], capture_output=True, text=True)
+                    if res.returncode == 0 and res.stdout.strip() and os.path.isfile(res.stdout.strip()):
+                        icon_path = res.stdout.strip()
+
                 apps.append({
                     "slug": slug,
                     "name": name,
                     "url": url,
                     "categories": categories,
-                    "icon_path": icon_path if os.path.isfile(icon_path) else "",
+                    "icon_name": icon_name,
+                    "icon_path": icon_path,
                 })
 
         return apps
@@ -657,7 +776,70 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
         except ValueError:
             return False
 
-    def resolve_and_install_icon(self, slug, url):
+    def find_system_icon(self, slug, name):
+        """
+        Check if an icon exists in the active system icon theme.
+        Returns: (theme_icon_name, file_path) or (None, None)
+        """
+        candidates = []
+        if slug in KNOWN_SYSTEM_ICON_ALIASES:
+            candidates.extend(KNOWN_SYSTEM_ICON_ALIASES[slug])
+
+        candidates.append(slug)
+        name_clean = re.sub(r"[^a-zA-Z0-9]+", "-", name.lower()).strip("-")
+        if name_clean and name_clean not in candidates:
+            candidates.append(name_clean)
+
+        seen = set()
+        unique_candidates = [c for c in candidates if not (c in seen or seen.add(c))]
+
+        for cand in unique_candidates:
+            # 1. Try kiconfinder6 / kiconfinder5
+            for kfinder in ("kiconfinder6", "kiconfinder5"):
+                if shutil.which(kfinder):
+                    res = subprocess.run([kfinder, cand], capture_output=True, text=True)
+                    if res.returncode == 0:
+                        path = res.stdout.strip()
+                        if path and os.path.isfile(path):
+                            return cand, path
+
+            # 2. Try QIcon.hasThemeIcon
+            if QIcon.hasThemeIcon(cand):
+                return cand, ""
+
+        return None, None
+
+    def resolve_app_icon(self, slug, name, url, custom_icon_path=""):
+        """
+        Priority order:
+        1. Custom icon path if provided and exists.
+        2. System icon from the active icon theme.
+        3. WebApp-Manager assigned icon (downloaded 128x128 favicon from domain).
+        4. Generic web browser fallback.
+
+        Returns: (desktop_icon_name, runner_icon_arg)
+        """
+        # Priority 1: Custom Icon Path
+        if custom_icon_path:
+            custom_path = os.path.expanduser(custom_icon_path.strip())
+            if os.path.isfile(custom_path):
+                _, ext = os.path.splitext(custom_path)
+                if not ext:
+                    ext = ".png"
+                target_name = f"googleapp-{slug}"
+                target_file = os.path.join(self.icon_dir, f"{target_name}{ext}")
+                try:
+                    shutil.copy2(custom_path, target_file)
+                    return target_name, target_file
+                except OSError:
+                    return custom_path, custom_path
+
+        # Priority 2: System Icon Theme
+        sys_name, sys_path = self.find_system_icon(slug, name)
+        if sys_name:
+            return sys_name, sys_path or sys_name
+
+        # Priority 3: WebApp-Manager Assigned Icon (Domain Favicon)
         icon_name = f"googleapp-{slug}"
         icon_path = os.path.join(self.icon_dir, icon_name + ".png")
 
@@ -671,13 +853,17 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
                 if response.headers.get("content-type", "").startswith("image/"):
                     with open(icon_path, "wb") as icon_file:
                         icon_file.write(response.content)
-                    return icon_name
+                    return icon_name, icon_path
         except (requests.RequestException, OSError, ValueError):
             pass
 
-        return "internet-web-browser"
+        if os.path.isfile(icon_path):
+            return icon_name, icon_path
 
-    def install_single_app(self, name, url, category="Internet", hide_header=True):
+        # Priority 4: Fallback
+        return "internet-web-browser", ""
+
+    def install_single_app(self, name, url, category="Internet", hide_header=True, custom_icon_path=""):
         name = name.strip()
         url = url.strip()
         if not name or not url:
@@ -693,15 +879,15 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
         os.makedirs(profile_dir, mode=0o700, exist_ok=True)
         os.chmod(profile_dir, 0o700)
 
-        icon_name = self.resolve_and_install_icon(slug, url)
-        icon_path = os.path.join(self.icon_dir, f"{icon_name}.png")
+        # Resolve icon (Custom -> System Icon Theme -> WebApp-Manager Favicon -> Generic)
+        icon_name, runner_icon_target = self.resolve_app_icon(slug, name, url, custom_icon_path)
 
         runner_args = [
             self.runner_bin,
             "--slug", slug,
             "--name", name,
             "--url", url,
-            "--icon", icon_path if os.path.isfile(icon_path) else icon_name,
+            "--icon", runner_icon_target if runner_icon_target else icon_name,
         ]
         if not hide_header:
             runner_args.append("--show-web-header")
@@ -764,10 +950,6 @@ X-KDE-Category=Google Apps
                     "<Name>Applications</Name>\n  <Layout>\n   <Merge type=\"files\"/>\n",
                     "<Name>Applications</Name>\n  <Layout>\n   <Merge type=\"files\"/>\n" + entry_xml,
                 )
-                content = content.replace(
-                    "<Name>Applications</Name>",
-                    "<Name>Applications</Name>",
-                )
                 if "</Include>" in content:
                     idx = content.rfind("</Include>")
                     content = content[:idx] + entry_xml + content[idx:]
@@ -818,6 +1000,7 @@ X-KDE-Category=Google Apps
         url = self.input_url.text().strip()
         category = self.category_combo.currentText()
         hide_header = self.hide_header_check.isChecked()
+        custom_icon = self.input_icon_path.text().strip()
 
         if not name:
             QMessageBox.warning(self, "Missing Name", "Please enter an application name.")
@@ -830,13 +1013,17 @@ X-KDE-Category=Google Apps
             return
 
         try:
-            launcher_id = self.install_single_app(name, url, category, hide_header)
+            launcher_id = self.install_single_app(
+                name, url, category, hide_header, custom_icon_path=custom_icon
+            )
             self.refresh_desktop_system()
             self.populate_installed_table()
 
             # Clear inputs
             self.input_name.clear()
             self.input_url.clear()
+            self.input_icon_path.clear()
+            self.update_icon_preview()
 
             QMessageBox.information(
                 self,
@@ -869,7 +1056,7 @@ X-KDE-Category=Google Apps
         self.refresh_desktop_system()
         self.populate_installed_table()
 
-        msg = f"Successfully installed {created} preset application(s)."
+        msg = f"Successfully installed {created} preset application(s) with system/web icons."
         if errors:
             msg += "\n\nErrors:\n" + "\n".join(errors)
         QMessageBox.information(self, "Preset Installation", msg)
@@ -886,14 +1073,27 @@ def main():
             name = sys.argv[2]
             url = sys.argv[3]
             category = "Internet"
-            if len(sys.argv) >= 6 and sys.argv[4] in ("--category", "-c"):
-                category = sys.argv[5]
+            custom_icon = ""
+
+            args = sys.argv[4:]
+            idx = 0
+            while idx < len(args):
+                if args[idx] in ("--category", "-c") and idx + 1 < len(args):
+                    category = args[idx + 1]
+                    idx += 2
+                elif args[idx] in ("--icon",) and idx + 1 < len(args):
+                    custom_icon = args[idx + 1]
+                    idx += 2
+                else:
+                    idx += 1
 
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             app = QApplication(sys.argv)
             mgr = WebAppManager()
             try:
-                lid = mgr.install_single_app(name, url, category, hide_header=True)
+                lid = mgr.install_single_app(
+                    name, url, category, hide_header=True, custom_icon_path=custom_icon
+                )
                 mgr.refresh_desktop_system()
                 print(f"✓ Successfully installed '{name}' ({lid}) for URL: {url}")
                 sys.exit(0)
@@ -920,7 +1120,7 @@ def main():
             installed = mgr.get_installed_apps()
             print(f"Found {len(installed)} installed web application(s):")
             for item in installed:
-                print(f"  • {item['name']} ({item['slug']}) -> {item['url']}")
+                print(f"  • {item['name']} ({item['slug']}) [Icon: {item['icon_name']}] -> {item['url']}")
             sys.exit(0)
 
     app = QApplication(sys.argv)
