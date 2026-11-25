@@ -36,61 +36,85 @@ DEFAULT_GOOGLE_APPS = [
         "name": "Google Calendar",
         "slug": "google-calendar",
         "url": "https://calendar.google.com",
+        "categories": "Office;Calendar;Network;WebBrowser;",
+        "keywords": "Google;Calendar;Schedule;Appointment;Agenda;Planner;Web;",
     },
     {
         "name": "Google Gmail",
         "slug": "google-gmail",
         "url": "https://mail.google.com",
+        "categories": "Office;Email;Network;WebBrowser;",
+        "keywords": "Google;Gmail;Email;Mail;Inbox;Web;",
     },
     {
         "name": "Google Drive",
         "slug": "google-drive",
         "url": "https://drive.google.com",
+        "categories": "Office;Network;WebBrowser;FileTransfer;",
+        "keywords": "Google;Drive;Cloud;Files;Storage;Docs;Web;",
     },
     {
         "name": "Google Keep",
         "slug": "google-keep",
         "url": "https://keep.google.com",
+        "categories": "Utility;Office;Network;WebBrowser;",
+        "keywords": "Google;Keep;Notes;Todo;Checklist;Lists;Web;",
     },
     {
         "name": "YouTube",
         "slug": "youtube",
         "url": "https://youtube.com",
+        "categories": "AudioVideo;Video;Network;WebBrowser;",
+        "keywords": "Google;YouTube;Video;Watch;Stream;Media;",
     },
     {
         "name": "YouTube Music",
         "slug": "youtube-music",
         "url": "https://music.youtube.com",
+        "categories": "AudioVideo;Audio;Music;Network;WebBrowser;",
+        "keywords": "Google;YouTube;Music;Songs;Audio;Streaming;Playlist;",
     },
     {
         "name": "Gemini",
         "slug": "gemini",
         "url": "https://gemini.google.com",
+        "categories": "Utility;Network;WebBrowser;",
+        "keywords": "Google;Gemini;AI;Assistant;Chatbot;LLM;Web;",
     },
     {
         "name": "Google Chat",
         "slug": "google-chat",
         "url": "https://chat.google.com",
+        "categories": "Network;Chat;InstantMessaging;WebBrowser;",
+        "keywords": "Google;Chat;Messaging;Team;Hangouts;Web;",
     },
     {
         "name": "Google Photos",
         "slug": "google-photos",
         "url": "https://photos.google.com",
+        "categories": "Graphics;Photography;Network;WebBrowser;",
+        "keywords": "Google;Photos;Pictures;Gallery;Albums;Images;Cloud;",
     },
     {
         "name": "Google Maps",
         "slug": "google-maps",
         "url": "https://maps.google.com",
+        "categories": "Utility;Geography;Maps;Network;WebBrowser;",
+        "keywords": "Google;Maps;Navigation;Directions;GPS;Traffic;Location;",
     },
     {
         "name": "Google Docs",
         "slug": "google-docs",
         "url": "https://docs.google.com",
+        "categories": "Office;WordProcessor;Network;WebBrowser;",
+        "keywords": "Google;Docs;Documents;Word;Editor;Writing;Office;",
     },
     {
         "name": "Google Sheets",
         "slug": "google-sheets",
         "url": "https://sheets.google.com",
+        "categories": "Office;Spreadsheet;Network;WebBrowser;",
+        "keywords": "Google;Sheets;Spreadsheet;Excel;Tables;Data;Office;",
     },
 ]
 
@@ -483,6 +507,9 @@ class GoogleAppCreator(QMainWindow):
 
         desktop_path = os.path.join(self.desktop_dir, launcher_id + ".desktop")
 
+        categories = app.get("categories", "Network;WebBrowser;")
+        keywords = app.get("keywords", f"Google;{name};Web;")
+
         desktop_content = f"""[Desktop Entry]
 Version=1.0
 Type=Application
@@ -494,7 +521,9 @@ Terminal=false
 Icon={icon_name}
 StartupNotify=true
 StartupWMClass={launcher_id}
-Categories=Network;
+Categories={categories}
+Keywords={keywords}
+X-KDE-Category=Google Apps
 """
         with open(desktop_path, "w", encoding="utf-8") as desktop_file:
             desktop_file.write(desktop_content)
@@ -569,23 +598,7 @@ Categories=Network;
             except OSError as error:
                 errors.append(f"{app['name']}: {error}")
 
-        if shutil.which("update-desktop-database"):
-            subprocess.run(
-                ["update-desktop-database", self.desktop_dir],
-                capture_output=True,
-                text=True,
-            )
-
-        if shutil.which("gtk-update-icon-cache"):
-            subprocess.run(
-                [
-                    "gtk-update-icon-cache",
-                    "-f", "-t",
-                    os.path.expanduser("~/.local/share/icons/hicolor"),
-                ],
-                capture_output=True,
-                text=True,
-            )
+        self.refresh_desktop_system()
 
         mode_desc = (
             "Native Standalone Window (with custom application bar)"
@@ -606,6 +619,27 @@ Categories=Network;
 
         QMessageBox.information(self, "Launcher Generation Complete", message)
 
+    def refresh_desktop_system(self):
+        """Update system desktop database, icon cache, and KDE ksycoca service cache."""
+        if shutil.which("update-desktop-database"):
+            subprocess.run(["update-desktop-database", self.desktop_dir], capture_output=True, text=True)
+        if shutil.which("gtk-update-icon-cache"):
+            subprocess.run(
+                ["gtk-update-icon-cache", "-f", "-t", os.path.expanduser("~/.local/share/icons/hicolor")],
+                capture_output=True,
+                text=True,
+            )
+        if shutil.which("kbuildsycoca6"):
+            subprocess.run(["kbuildsycoca6", "--noincremental"], capture_output=True, text=True)
+        if shutil.which("dbus-send"):
+            subprocess.run(
+                [
+                    "dbus-send", "--session", "--dest=org.kde.KWin",
+                    "--type=method_call", "/KWin", "org.kde.KWin.reconfigure",
+                ],
+                capture_output=True,
+                text=True,
+            )
 
     def generate_all_headless(self, native=True, hide_web_header=True):
         self.native_window_radio.setChecked(native)
@@ -622,22 +656,7 @@ Categories=Network;
                 errors.append(f"{app['name']}: {error}")
                 print(f"  ✗ {app['name']}: {error}", file=sys.stderr)
 
-        if shutil.which("update-desktop-database"):
-            subprocess.run(
-                ["update-desktop-database", self.desktop_dir],
-                capture_output=True,
-                text=True,
-            )
-        if shutil.which("gtk-update-icon-cache"):
-            subprocess.run(
-                [
-                    "gtk-update-icon-cache",
-                    "-f", "-t",
-                    os.path.expanduser("~/.local/share/icons/hicolor"),
-                ],
-                capture_output=True,
-                text=True,
-            )
+        self.refresh_desktop_system()
         return created, errors
 
 

@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QQuickWebEngineProfile>
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include <QIcon>
@@ -30,15 +31,6 @@ Window {
     color: "#181a1f"
 
     property bool webHeaderHidden: initialHideWebHeader
-
-    WebEngineProfile {
-        id: webProfile
-        storageName: appSlug
-        persistentStoragePath: storageDir
-        cachePath: cacheDir
-        persistentCookiesPolicy: WebEngineProfile.AllowPersistentCookies
-        httpUserAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    }
 
     // Created Application Bar (Custom Native Header with Window Controls)
     Rectangle {
@@ -76,43 +68,41 @@ Window {
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 10
+            anchors.leftMargin: 12
             anchors.rightMargin: 0
             spacing: 8
 
-            // App Icon
-            Image {
-                id: appIconImg
-                source: {
-                    if (appIcon.indexOf("/") !== -1) return "file://" + appIcon
-                    if (appIcon !== "") return "image://icon/" + appIcon
-                    return ""
-                }
-                Layout.preferredWidth: 20
-                Layout.preferredHeight: 20
-                fillMode: Image.PreserveAspectFit
-                visible: source !== ""
-            }
-
-            // App Name
-            Label {
-                text: root.title
-                color: "#f6f8fa"
-                font.pixelSize: 13
-                font.bold: true
-                Layout.alignment: Qt.AlignVCenter
-                elide: Text.ElideRight
-            }
-
-            // Navigation Controls: Back, Forward, Reload
+            // App Icon & Name
             RowLayout {
-                spacing: 3
-                Layout.alignment: Qt.AlignVCenter
+                spacing: 8
+                Image {
+                    source: appIcon ? (appIcon.indexOf("/") === 0 ? "file://" + appIcon : appIcon) : ""
+                    visible: appIcon !== ""
+                    Layout.preferredWidth: 20
+                    Layout.preferredHeight: 20
+                    fillMode: Image.PreserveAspectFit
+                }
+                Text {
+                    text: appName
+                    color: "#e6edf3"
+                    font.pixelSize: 13
+                    font.weight: Font.DemiBold
+                    Layout.maximumWidth: 200
+                    elide: Text.ElideRight
+                }
+            }
 
+            // Web Navigation Controls
+            RowLayout {
+                spacing: 2
+                Layout.leftMargin: 8
+
+                // Back
                 Rectangle {
-                    Layout.preferredWidth: 26; Layout.preferredHeight: 26; radius: 5
-                    color: backMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                    opacity: webView.canGoBack ? 1.0 : 0.35
+                    Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                    radius: 4
+                    color: backMouse.containsMouse ? "#2d3342" : "transparent"
+                    opacity: webView.canGoBack ? 1.0 : 0.4
                     Text { text: "←"; color: "#ffffff"; font.pixelSize: 14; anchors.centerIn: parent }
                     MouseArea {
                         id: backMouse; anchors.fill: parent; hoverEnabled: true
@@ -121,47 +111,65 @@ Window {
                     }
                 }
 
+                // Forward
                 Rectangle {
-                    Layout.preferredWidth: 26; Layout.preferredHeight: 26; radius: 5
-                    color: fwdMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                    opacity: webView.canGoForward ? 1.0 : 0.35
+                    Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                    radius: 4
+                    color: forwardMouse.containsMouse ? "#2d3342" : "transparent"
+                    opacity: webView.canGoForward ? 1.0 : 0.4
                     Text { text: "→"; color: "#ffffff"; font.pixelSize: 14; anchors.centerIn: parent }
                     MouseArea {
-                        id: fwdMouse; anchors.fill: parent; hoverEnabled: true
+                        id: forwardMouse; anchors.fill: parent; hoverEnabled: true
                         cursorShape: webView.canGoForward ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: if (webView.canGoForward) webView.goForward()
                     }
                 }
 
+                // Reload / Stop
                 Rectangle {
-                    Layout.preferredWidth: 26; Layout.preferredHeight: 26; radius: 5
-                    color: reloadMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                    Text { text: webView.loading ? "✕" : "⟳"; color: "#ffffff"; font.pixelSize: 14; anchors.centerIn: parent }
+                    Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                    radius: 4
+                    color: reloadMouse.containsMouse ? "#2d3342" : "transparent"
+                    Text {
+                        text: webView.loading ? "✕" : "⟳"
+                        color: "#ffffff"
+                        font.pixelSize: 14
+                        anchors.centerIn: parent
+                    }
                     MouseArea {
                         id: reloadMouse; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            if (webView.loading) webView.stop()
-                            else webView.reload()
+                            if (webView.loading) {
+                                webView.stop()
+                            } else {
+                                webView.reload()
+                            }
                         }
                     }
                 }
 
-                // Web UI Top Bar Visibility Toggle Badge
+                // Web UI Top Header Toggle
                 Rectangle {
-                    Layout.preferredWidth: 84; Layout.preferredHeight: 22; radius: 11
-                    color: root.webHeaderHidden ? Qt.rgba(0.2, 0.6, 1.0, 0.22) : (hdrMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.06))
-                    border.color: root.webHeaderHidden ? "#3584e4" : Qt.rgba(1, 1, 1, 0.15)
+                    Layout.preferredWidth: 92; Layout.preferredHeight: 24
+                    Layout.leftMargin: 6
+                    radius: 12
+                    color: root.webHeaderHidden ? "#253347" : "#3b3424"
+                    border.color: root.webHeaderHidden ? "#3584e4" : "#e5a50a"
                     border.width: 1
-                    Text {
-                        text: root.webHeaderHidden ? "Web Bar: Off" : "Web Bar: On"
-                        color: root.webHeaderHidden ? "#64b5f6" : Qt.rgba(1, 1, 1, 0.75)
-                        font.pixelSize: 10
-                        font.bold: true
+
+                    RowLayout {
                         anchors.centerIn: parent
+                        spacing: 4
+                        Text {
+                            text: root.webHeaderHidden ? "Web Bar: Off" : "Web Bar: On"
+                            color: root.webHeaderHidden ? "#78aeed" : "#f6d32d"
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
+                        }
                     }
                     MouseArea {
-                        id: hdrMouse; anchors.fill: parent; hoverEnabled: true
+                        anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             root.webHeaderHidden = !root.webHeaderHidden
@@ -171,22 +179,22 @@ Window {
                 }
             }
 
-            // Draggable Spacer Area
+            // Flexible Spacer for Draggable Header
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
             }
 
-            // Window Action Buttons: Minimize, Maximize/Restore, Close
+            // Window Action Buttons (Minimize, Maximize, Close)
             RowLayout {
                 spacing: 0
-                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                Layout.alignment: Qt.AlignRight
 
                 // Minimize
                 Rectangle {
-                    Layout.preferredWidth: 44; Layout.preferredHeight: 38
-                    color: minMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                    Text { text: "—"; color: "#ffffff"; font.pixelSize: 12; anchors.centerIn: parent }
+                    Layout.preferredWidth: 46; Layout.preferredHeight: 38
+                    color: minMouse.containsMouse ? "#2d3342" : "transparent"
+                    Text { text: "—"; color: "#c0caf5"; font.pixelSize: 12; anchors.centerIn: parent }
                     MouseArea {
                         id: minMouse; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
@@ -196,11 +204,11 @@ Window {
 
                 // Maximize / Restore
                 Rectangle {
-                    Layout.preferredWidth: 44; Layout.preferredHeight: 38
-                    color: maxMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                    Layout.preferredWidth: 46; Layout.preferredHeight: 38
+                    color: maxMouse.containsMouse ? "#2d3342" : "transparent"
                     Text {
                         text: root.visibility === Window.Maximized ? "❐" : "□"
-                        color: "#ffffff"
+                        color: "#c0caf5"
                         font.pixelSize: 12
                         anchors.centerIn: parent
                     }
@@ -208,8 +216,11 @@ Window {
                         id: maxMouse; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            if (root.visibility === Window.Maximized) root.showNormal()
-                            else root.showMaximized()
+                            if (root.visibility === Window.Maximized) {
+                                root.showNormal()
+                            } else {
+                                root.showMaximized()
+                            }
                         }
                     }
                 }
@@ -243,6 +254,11 @@ Window {
         settings.pluginsEnabled: true
         settings.fullScreenSupportEnabled: true
         settings.localContentCanAccessRemoteUrls: true
+        settings.localStorageEnabled: true
+        settings.javascriptCanAccessClipboard: true
+        settings.allowWindowActivationFromJavaScript: true
+        settings.webGLEnabled: true
+        settings.accelerated2dCanvasEnabled: true
 
         function applyTopBarVisibility() {
             var css = "#gb, header#gb, .gb_Fd, #masthead-container, #masthead, ytd-masthead, ytmusic-nav-bar, div[role='banner'], header[role='banner'] { display: none !important; } body, html { margin-top: 0 !important; padding-top: 0 !important; } #content, #page-manager, ytd-app { margin-top: 0 !important; padding-top: 0 !important; }";
@@ -268,6 +284,10 @@ Window {
             }
             request.accept();
         }
+
+        onNewWindowRequested: function(request) {
+            request.openIn(webView);
+        }
     }
 
     // Window Edge Resize Handlers (Borders & Corners)
@@ -291,8 +311,6 @@ Window {
         cursorShape: Qt.SizeVerCursor
         onPressed: root.startSystemResize(Qt.BottomEdge)
     }
-
-    // Corner Resize Handlers
     MouseArea {
         anchors.top: parent.top; anchors.left: parent.left; width: 12; height: 12; z: 201
         cursorShape: Qt.SizeFDiagCursor
@@ -326,7 +344,7 @@ Window {
 )QML";
 
 int main(int argc, char *argv[]) {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox");
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --password-store=basic");
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);
@@ -339,12 +357,14 @@ int main(int argc, char *argv[]) {
     QCommandLineOption nameOpt("name", "Application display name", "name", "Web App");
     QCommandLineOption urlOpt("url", "Application web URL", "url", "https://google.com");
     QCommandLineOption iconOpt("icon", "Application icon file or name", "icon", "");
+    QCommandLineOption profileDirOpt("profile-dir", "Custom persistent profile directory path", "path", "");
     QCommandLineOption showHeaderOpt("show-web-header", "Keep the web UI top bar visible by default");
 
     parser.addOption(slugOpt);
     parser.addOption(nameOpt);
     parser.addOption(urlOpt);
     parser.addOption(iconOpt);
+    parser.addOption(profileDirOpt);
     parser.addOption(showHeaderOpt);
 
     parser.process(app);
@@ -363,17 +383,29 @@ int main(int argc, char *argv[]) {
         app.setWindowIcon(QIcon(icon));
     }
 
-    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dataDir.isEmpty()) {
-        dataDir = QDir::homePath() + "/.local/share/googleapp";
+    // Standardized persistent profile & cache directories
+    QString storageDir = parser.value(profileDirOpt);
+    if (storageDir.isEmpty()) {
+        storageDir = QString("%1/.local/share/googleapp-profiles/%2").arg(QDir::homePath(), desktopId);
     }
-    QString storageDir = QString("%1/profiles/%2").arg(dataDir, desktopId);
     QString cacheDir = QString("%1/.cache/googleapp/%2").arg(QDir::homePath(), desktopId);
 
     QDir().mkpath(storageDir);
     QDir().mkpath(cacheDir);
 
+    // Explicitly configure disk-backed persistent profile in C++
+    QQuickWebEngineProfile profile;
+    profile.setStorageName(slug);
+    profile.setPersistentStoragePath(storageDir);
+    profile.setCachePath(cacheDir);
+    profile.setOffTheRecord(false);
+    profile.setPersistentCookiesPolicy(QQuickWebEngineProfile::AllowPersistentCookies);
+    profile.setPersistentPermissionsPolicy(QQuickWebEngineProfile::PersistentPermissionsPolicy::StoreOnDisk);
+    profile.setHttpCacheType(QQuickWebEngineProfile::DiskHttpCache);
+    profile.setHttpUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+
     QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("webProfile", &profile);
     engine.rootContext()->setContextProperty("appSlug", slug);
     engine.rootContext()->setContextProperty("appName", name);
     engine.rootContext()->setContextProperty("appUrl", url);
