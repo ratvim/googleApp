@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 
 import os
@@ -19,6 +18,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QCheckBox,
+    QRadioButton,
     QPushButton,
     QLineEdit,
     QScrollArea,
@@ -77,6 +77,21 @@ DEFAULT_GOOGLE_APPS = [
         "slug": "google-photos",
         "url": "https://photos.google.com",
     },
+    {
+        "name": "Google Maps",
+        "slug": "google-maps",
+        "url": "https://maps.google.com",
+    },
+    {
+        "name": "Google Docs",
+        "slug": "google-docs",
+        "url": "https://docs.google.com",
+    },
+    {
+        "name": "Google Sheets",
+        "slug": "google-sheets",
+        "url": "https://sheets.google.com",
+    },
 ]
 
 
@@ -84,21 +99,17 @@ class GoogleAppCreator(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Google App Launcher Builder")
-        self.setMinimumSize(600, 720)
+        self.setWindowTitle("Google App & Standalone Web App Builder")
+        self.setMinimumSize(640, 780)
 
         self.data_dir = os.path.expanduser("~/.local/share")
-        self.desktop_dir = os.path.join(
-            self.data_dir, "applications"
-        )
+        self.desktop_dir = os.path.join(self.data_dir, "applications")
         self.bin_dir = os.path.expanduser("~/.local/bin")
         self.icon_dir = os.path.join(
-            self.data_dir, "icons", "hicolor",
-            "128x128", "apps"
+            self.data_dir, "icons", "hicolor", "128x128", "apps"
         )
-        self.profiles_dir = os.path.join(
-            self.data_dir, "googleapp-profiles"
-        )
+        self.profiles_dir = os.path.join(self.data_dir, "googleapp-profiles")
+        self.runner_bin = os.path.join(self.bin_dir, "googleapp-runner")
 
         for directory in (
             self.desktop_dir,
@@ -111,40 +122,110 @@ class GoogleAppCreator(QMainWindow):
         self.custom_apps = []
         self.checkboxes = []
 
+        # Ensure native runner binary is ready
+        self.ensure_runner_binary()
+
         self.init_ui()
+
+    def ensure_runner_binary(self):
+        """Build or verify native googleapp-runner binary."""
+        if os.path.isfile(self.runner_bin) and os.access(self.runner_bin, os.X_OK):
+            return True
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        cpp_file = os.path.join(script_dir, "googleapp_runner.cpp")
+        if not os.path.isfile(cpp_file):
+            return False
+
+        if not shutil.which("g++"):
+            return False
+
+        try:
+            pkg_res = subprocess.run(
+                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6Quick", "Qt6Gui"],
+                capture_output=True,
+                text=True,
+            )
+            if pkg_res.returncode != 0:
+                return False
+
+            flags = shlex.split(pkg_res.stdout)
+            local_bin = os.path.join(script_dir, "googleapp-runner")
+            compile_res = subprocess.run(
+                ["g++", "-O2", cpp_file] + flags + ["-o", local_bin],
+                capture_output=True,
+                text=True,
+            )
+            if compile_res.returncode == 0:
+                shutil.copy2(local_bin, self.runner_bin)
+                os.chmod(self.runner_bin, 0o755)
+                return True
+        except Exception:
+            return False
+
+        return False
 
     def init_ui(self):
         main_layout = QVBoxLayout()
 
-        title = QLabel("Google App & Web App Launcher Builder")
-        title.setFont(QFont("Sans Serif", 12, QFont.Weight.Bold))
+        title = QLabel("Google App & Standalone Web App Builder")
+        title.setFont(QFont("Sans Serif", 13, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title)
 
         description = QLabel(
-            "Create independent Chrome app launchers.\n"
-            "Each app has its own persistent browser profile."
+            "Launch each Google App as an independent native desktop window application.\n"
+            "Features a custom application bar with Minimize, Maximize, and Close controls, "
+            "with redundant web UI headers removed."
         )
         description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        description.setWordWrap(True)
         main_layout.addWidget(description)
 
-        browser_group = QGroupBox("Browser command")
-        browser_layout = QVBoxLayout()
+        # Window & Architecture Style Selection
+        style_group = QGroupBox("Window application style")
+        style_layout = QVBoxLayout()
 
-        browser_layout.addWidget(QLabel(
-            "Flatpak example: flatpak run com.google.Chrome"
-        ))
+        self.native_window_radio = QRadioButton(
+            "Native Standalone Window (Integrated application bar, window controls, hidden web UI top bar)"
+        )
+        self.native_window_radio.setChecked(True)
+        self.native_window_radio.setStyleSheet("font-weight: bold;")
+        style_layout.addWidget(self.native_window_radio)
 
+        self.hide_web_header_check = QCheckBox(
+            "Hide redundant web UI top header (Google Bar / masthead / search bar) on load"
+        )
+        self.hide_web_header_check.setChecked(True)
+        self.hide_web_header_check.setStyleSheet("margin-left: 22px; color: #3584e4;")
+        style_layout.addWidget(self.hide_web_header_check)
+
+        self.browser_window_radio = QRadioButton(
+            "Browser App Mode (Legacy launch via Flatpak Chrome or Chromium --app)"
+        )
+        style_layout.addWidget(self.browser_window_radio)
+
+        self.browser_widget = QWidget()
+        browser_layout = QVBoxLayout(self.browser_widget)
+        browser_layout.setContentsMargins(22, 0, 0, 0)
+        browser_layout.addWidget(QLabel("Browser command (e.g. flatpak run com.google.Chrome):"))
         self.browser_input = QLineEdit()
         self.browser_input.setText(self.detect_browser())
         browser_layout.addWidget(self.browser_input)
+        style_layout.addWidget(self.browser_widget)
 
-        browser_group.setLayout(browser_layout)
-        main_layout.addWidget(browser_group)
+        self.native_window_radio.toggled.connect(self.update_style_visibility)
+        self.update_style_visibility()
+
+        style_group.setLayout(style_layout)
+        main_layout.addWidget(style_group)
+
+        # App Selection List
+        apps_group = QGroupBox("Select applications to create")
+        apps_layout = QVBoxLayout()
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-
         scroll_content = QWidget()
         self.grid_layout = QGridLayout(scroll_content)
 
@@ -152,48 +233,43 @@ class GoogleAppCreator(QMainWindow):
             checkbox = QCheckBox(app_info["name"])
             checkbox.setChecked(True)
             checkbox.setProperty("app_data", app_info)
-
             self.checkboxes.append(checkbox)
-            self.grid_layout.addWidget(
-                checkbox, index // 2, index % 2
-            )
+            self.grid_layout.addWidget(checkbox, index // 2, index % 2)
 
         scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        apps_layout.addWidget(scroll)
+        apps_group.setLayout(apps_layout)
+        main_layout.addWidget(apps_group)
 
+        # Custom Web Applications Group
         custom_group = QGroupBox("Custom web applications")
         custom_layout = QVBoxLayout()
 
-        self.custom_list_label = QLabel(
-            "No custom apps added yet."
-        )
+        self.custom_list_label = QLabel("No custom apps added yet.")
         self.custom_list_label.setWordWrap(True)
         custom_layout.addWidget(self.custom_list_label)
 
-        add_button = QPushButton("Add Custom Web App")
+        add_button = QPushButton("Add Custom Web App...")
         add_button.clicked.connect(self.add_custom_app_dialog)
         custom_layout.addWidget(add_button)
 
         custom_group.setLayout(custom_layout)
         main_layout.addWidget(custom_group)
 
+        # Bottom Actions
         action_layout = QHBoxLayout()
 
         select_all = QPushButton("Select All")
-        select_all.clicked.connect(
-            lambda: self.set_all_checkboxes(True)
-        )
+        select_all.clicked.connect(lambda: self.set_all_checkboxes(True))
         action_layout.addWidget(select_all)
 
         deselect_all = QPushButton("Deselect All")
-        deselect_all.clicked.connect(
-            lambda: self.set_all_checkboxes(False)
-        )
+        deselect_all.clicked.connect(lambda: self.set_all_checkboxes(False))
         action_layout.addWidget(deselect_all)
 
         generate = QPushButton("Create Selected Applications")
         generate.setStyleSheet(
-            "font-weight: bold; padding: 8px;"
+            "font-weight: bold; padding: 10px; background-color: #3584e4; color: #ffffff; border-radius: 6px;"
         )
         generate.clicked.connect(self.generate_applications)
         action_layout.addWidget(generate)
@@ -203,6 +279,11 @@ class GoogleAppCreator(QMainWindow):
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
+
+    def update_style_visibility(self):
+        is_native = self.native_window_radio.isChecked()
+        self.hide_web_header_check.setEnabled(is_native)
+        self.browser_widget.setVisible(not is_native)
 
     def detect_browser(self):
         if shutil.which("flatpak"):
@@ -238,12 +319,7 @@ class GoogleAppCreator(QMainWindow):
 
     @staticmethod
     def make_slug(value):
-        slug = re.sub(
-            r"[^a-z0-9]+",
-            "-",
-            value.lower()
-        ).strip("-")
-
+        slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
         return slug or "web-app"
 
     @staticmethod
@@ -260,45 +336,34 @@ class GoogleAppCreator(QMainWindow):
 
     def add_custom_app_dialog(self):
         name, accepted = QInputDialog.getText(
-            self,
-            "Custom App Name",
-            "Enter application name:"
+            self, "Custom App Name", "Enter application name:"
         )
-
         if not accepted or not name.strip():
             return
 
         url, accepted = QInputDialog.getText(
-            self,
-            "Custom App URL",
-            "Enter URL (e.g. https://example.com):"
+            self, "Custom App URL", "Enter URL (e.g. https://example.com):"
         )
-
         if not accepted or not url.strip():
             return
 
         url = url.strip()
-
         if "://" not in url:
             url = "https://" + url
 
         if not self.valid_url(url):
             QMessageBox.warning(
-                self,
-                "Invalid URL",
-                "Enter a valid HTTP or HTTPS URL."
+                self, "Invalid URL", "Enter a valid HTTP or HTTPS URL."
             )
             return
 
         slug = self.make_slug(name)
-
-        if any(app["slug"] == slug for app in (
-            DEFAULT_GOOGLE_APPS + self.custom_apps
-        )):
+        if any(
+            app["slug"] == slug
+            for app in (DEFAULT_GOOGLE_APPS + self.custom_apps)
+        ):
             QMessageBox.warning(
-                self,
-                "Duplicate App",
-                "An application with this slug already exists."
+                self, "Duplicate App", "An application with this slug already exists."
             )
             return
 
@@ -309,42 +374,24 @@ class GoogleAppCreator(QMainWindow):
         })
 
         self.custom_list_label.setText(
-            "Added: " + ", ".join(
-                app["name"] for app in self.custom_apps
-            )
+            "Added: " + ", ".join(app["name"] for app in self.custom_apps)
         )
 
     def resolve_and_install_icon(self, slug, url):
         icon_name = f"googleapp-{slug}"
-        icon_path = os.path.join(
-            self.icon_dir, icon_name + ".png"
-        )
+        icon_path = os.path.join(self.icon_dir, icon_name + ".png")
 
         try:
             domain = urlsplit(url).hostname
-
             if domain:
-                icon_url = (
-                    "https://www.google.com/s2/favicons"
-                    f"?domain={domain}&sz=128"
-                )
-
-                response = requests.get(
-                    icon_url, timeout=5
-                )
+                icon_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
+                response = requests.get(icon_url, timeout=5)
                 response.raise_for_status()
 
-                # Avoid saving an HTML error page as an icon.
-                if (
-                    response.headers.get(
-                        "content-type", ""
-                    ).startswith("image/")
-                ):
+                if response.headers.get("content-type", "").startswith("image/"):
                     with open(icon_path, "wb") as icon_file:
                         icon_file.write(response.content)
-
                     return icon_name
-
         except (requests.RequestException, OSError, ValueError):
             pass
 
@@ -364,9 +411,7 @@ class GoogleAppCreator(QMainWindow):
     def desktop_exec_arg(value):
         """Quote one argument using desktop Exec syntax."""
         value = str(value)
-        if value and re.fullmatch(
-            r"[A-Za-z0-9_./:=+-]+", value
-        ):
+        if value and re.fullmatch(r"[A-Za-z0-9_./:=+-]+", value):
             return value
 
         value = (
@@ -384,47 +429,59 @@ class GoogleAppCreator(QMainWindow):
         launcher_id = f"googleapp-{app_slug}"
         url = app["url"]
 
-        profile_dir = os.path.join(
-            self.profiles_dir, launcher_id
-        )
+        profile_dir = os.path.join(self.profiles_dir, launcher_id)
         os.makedirs(profile_dir, mode=0o700, exist_ok=True)
         os.chmod(profile_dir, 0o700)
 
-        icon_name = self.resolve_and_install_icon(
-            app_slug, url
+        icon_name = self.resolve_and_install_icon(app_slug, url)
+        icon_path = os.path.join(self.icon_dir, f"{icon_name}.png")
+
+        use_native_window = (
+            self.native_window_radio.isChecked()
+            and self.ensure_runner_binary()
         )
 
-        # Each launcher invokes its own wrapper script.
-        # shlex.join safely quotes arguments for the shell.
-        browser_args = browser_parts + [
-            f"--user-data-dir={profile_dir}",
-            f"--class={launcher_id}",
-            f"--app={url}",
-        ]
+        script_path = os.path.join(self.bin_dir, launcher_id + ".sh")
 
-        script_path = os.path.join(
-            self.bin_dir, launcher_id + ".sh"
-        )
+        if use_native_window:
+            runner_args = [
+                self.runner_bin,
+                "--slug", app_slug,
+                "--name", name,
+                "--url", url,
+                "--icon", icon_path if os.path.isfile(icon_path) else icon_name,
+            ]
+            if not self.hide_web_header_check.isChecked():
+                runner_args.append("--show-web-header")
 
-        script_content = (
-            "#!/bin/sh\n"
-            "set -eu\n"
-            "exec " + shlex.join(browser_args) + "\n"
-        )
+            script_content = (
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "exec " + shlex.join(runner_args) + ' "$@"\n'
+            )
+            with open(script_path, "w", encoding="utf-8") as script_file:
+                script_file.write(script_content)
+            os.chmod(script_path, 0o755)
 
-        with open(
-            script_path, "w", encoding="utf-8"
-        ) as script_file:
-            script_file.write(script_content)
+            exec_line = self.desktop_exec_arg(script_path)
+        else:
+            browser_args = browser_parts + [
+                f"--user-data-dir={profile_dir}",
+                f"--class={launcher_id}",
+                f"--app={url}",
+            ]
+            script_content = (
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "exec " + shlex.join(browser_args) + "\n"
+            )
+            with open(script_path, "w", encoding="utf-8") as script_file:
+                script_file.write(script_content)
+            os.chmod(script_path, 0o755)
 
-        os.chmod(script_path, 0o755)
+            exec_line = self.desktop_exec_arg(script_path)
 
-        desktop_path = os.path.join(
-            self.desktop_dir, launcher_id + ".desktop"
-        )
-
-        # The desktop entry calls the wrapper directly.
-        exec_line = self.desktop_exec_arg(script_path)
+        desktop_path = os.path.join(self.desktop_dir, launcher_id + ".desktop")
 
         desktop_content = f"""[Desktop Entry]
 Version=1.0
@@ -439,62 +496,55 @@ StartupNotify=true
 StartupWMClass={launcher_id}
 Categories=Network;
 """
-
-        with open(
-            desktop_path, "w", encoding="utf-8"
-        ) as desktop_file:
+        with open(desktop_path, "w", encoding="utf-8") as desktop_file:
             desktop_file.write(desktop_content)
-
         os.chmod(desktop_path, 0o644)
 
     def generate_applications(self):
-        browser_cmd = self.browser_input.text().strip()
+        use_native = self.native_window_radio.isChecked()
+        browser_parts = []
 
-        if not browser_cmd:
-            QMessageBox.warning(
-                self, "Warning",
-                "Please specify a browser command."
-            )
-            return
+        if use_native:
+            if not self.ensure_runner_binary():
+                QMessageBox.warning(
+                    self,
+                    "Runner Build Error",
+                    "Could not compile or locate ~/.local/bin/googleapp-runner.\n"
+                    "Please ensure g++ and Qt6 development libraries are installed."
+                )
+                return
+        else:
+            browser_cmd = self.browser_input.text().strip()
+            if not browser_cmd:
+                QMessageBox.warning(
+                    self, "Warning", "Please specify a browser command."
+                )
+                return
 
-        try:
-            browser_parts = shlex.split(browser_cmd)
-        except ValueError as error:
-            QMessageBox.warning(
-                self, "Invalid Command", str(error)
-            )
-            return
+            try:
+                browser_parts = shlex.split(browser_cmd)
+            except ValueError as error:
+                QMessageBox.warning(self, "Invalid Command", str(error))
+                return
 
-        if not browser_parts:
-            QMessageBox.warning(
-                self, "Warning",
-                "The browser command is empty."
-            )
-            return
+            if not browser_parts:
+                QMessageBox.warning(
+                    self, "Warning", "The browser command is empty."
+                )
+                return
 
-        # Verify the runner or executable exists.
-        executable = browser_parts[0]
-        if (
-            os.path.sep in executable
-            and not os.path.isfile(executable)
-        ):
-            QMessageBox.warning(
-                self,
-                "Browser Not Found",
-                f"Executable does not exist:\n{executable}"
-            )
-            return
+            executable = browser_parts[0]
+            if os.path.sep in executable and not os.path.isfile(executable):
+                QMessageBox.warning(
+                    self, "Browser Not Found", f"Executable does not exist:\n{executable}"
+                )
+                return
 
-        if (
-            os.path.sep not in executable
-            and shutil.which(executable) is None
-        ):
-            QMessageBox.warning(
-                self,
-                "Browser Not Found",
-                f"Command not found:\n{executable}"
-            )
-            return
+            if os.path.sep not in executable and shutil.which(executable) is None:
+                QMessageBox.warning(
+                    self, "Browser Not Found", f"Command not found:\n{executable}"
+                )
+                return
 
         selected_apps = [
             checkbox.property("app_data")
@@ -505,8 +555,7 @@ Categories=Network;
 
         if not selected_apps:
             QMessageBox.warning(
-                self, "Warning",
-                "Select or add at least one application."
+                self, "Warning", "Select or add at least one application."
             )
             return
 
@@ -532,33 +581,83 @@ Categories=Network;
                 [
                     "gtk-update-icon-cache",
                     "-f", "-t",
-                    os.path.expanduser(
-                        "~/.local/share/icons/hicolor"
-                    ),
+                    os.path.expanduser("~/.local/share/icons/hicolor"),
                 ],
                 capture_output=True,
                 text=True,
             )
 
+        mode_desc = (
+            "Native Standalone Window (with custom application bar)"
+            if use_native else "Browser App (Chrome/Chromium --app)"
+        )
+
         message = (
-            f"Created {created} application launcher(s).\n\n"
+            f"Created {created} application launcher(s) in {mode_desc} mode.\n\n"
             f"Desktop files:\n{self.desktop_dir}\n\n"
             f"Launcher scripts:\n{self.bin_dir}\n\n"
             f"Persistent profiles:\n{self.profiles_dir}\n\n"
-            "Close existing app windows before testing "
-            "the newly generated launchers."
+            "Each app now launches as an independent window with its own application bar, "
+            "window controls, and persistent profile."
         )
 
         if errors:
             message += "\n\nErrors:\n" + "\n".join(errors)
 
-        QMessageBox.information(
-            self, "Launcher Generation Complete", message
-        )
+        QMessageBox.information(self, "Launcher Generation Complete", message)
+
+
+    def generate_all_headless(self, native=True, hide_web_header=True):
+        self.native_window_radio.setChecked(native)
+        self.browser_window_radio.setChecked(not native)
+        self.hide_web_header_check.setChecked(hide_web_header)
+        created = 0
+        errors = []
+        for app in DEFAULT_GOOGLE_APPS:
+            try:
+                self.create_launcher(app, [])
+                created += 1
+                print(f"  ✓ {app['name']} -> googleapp-{app['slug']}.desktop")
+            except Exception as error:
+                errors.append(f"{app['name']}: {error}")
+                print(f"  ✗ {app['name']}: {error}", file=sys.stderr)
+
+        if shutil.which("update-desktop-database"):
+            subprocess.run(
+                ["update-desktop-database", self.desktop_dir],
+                capture_output=True,
+                text=True,
+            )
+        if shutil.which("gtk-update-icon-cache"):
+            subprocess.run(
+                [
+                    "gtk-update-icon-cache",
+                    "-f", "-t",
+                    os.path.expanduser("~/.local/share/icons/hicolor"),
+                ],
+                capture_output=True,
+                text=True,
+            )
+        return created, errors
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("--all", "--create-all", "-a"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        app = QApplication(sys.argv)
+        creator = GoogleAppCreator()
+        print("Creating all default Google App standalone launchers...")
+        count, errs = creator.generate_all_headless(native=True, hide_web_header=True)
+        print(f"\nDone: Created {count} application launchers in Native Standalone Window mode.")
+        if errs:
+            print("Errors encountered:", file=sys.stderr)
+            for err in errs:
+                print(f"  - {err}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
     app = QApplication(sys.argv)
     window = GoogleAppCreator()
     window.show()
     sys.exit(app.exec())
+
