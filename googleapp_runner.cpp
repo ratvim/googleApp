@@ -14,6 +14,9 @@
 #include <QStandardPaths>
 #include <QProcess>
 #include <QMetaObject>
+#include <QLocalServer>
+#include <QLocalSocket>
+#include <unistd.h>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <iostream>
 
@@ -80,6 +83,15 @@ Window {
     color: "#181a1f"
 
     property bool webHeaderHidden: initialHideWebHeader
+
+    function activateWindow() {
+        if (root.visibility === Window.Minimized) {
+            root.showNormal()
+        }
+        root.show()
+        root.raise()
+        root.requestActivate()
+    }
 
     // Created Application Bar (Custom Native Header with Window Controls)
     Rectangle {
@@ -306,15 +318,56 @@ Window {
 )QML";
 
 int main(int argc, char *argv[]) {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
+    QString pwStore = "detect";
+    QString earlySlug = "web-app";
+
+    for (int i = 1; i < argc; ++i) {
+        QString a = QString::fromUtf8(argv[i]);
+        if (a.startsWith("--password-store=")) {
+            pwStore = a.mid(17);
+        } else if (a == "--password-store" && i + 1 < argc) {
+            pwStore = QString::fromUtf8(argv[i + 1]);
+        } else if (a.startsWith("--slug=")) {
+            earlySlug = a.mid(7);
+        } else if (a == "--slug" && i + 1 < argc) {
+            earlySlug = QString::fromUtf8(argv[i + 1]);
+        }
+    }
+
+    // Set Chromium flags with KWallet / KeepSecret password-store integration
+    QString chromiumFlags = QString(
         "--no-sandbox "
-        "--password-store=basic "
+        "--password-store=%1 "
         "--disable-blink-features=AutomationControlled "
         "--enable-features=NetworkService,NetworkServiceInProcess"
-    );
-    QtWebEngineQuick::initialize();
+    ).arg(pwStore);
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlags.toUtf8());
 
+    QtWebEngineQuick::initialize();
     QGuiApplication app(argc, argv);
+
+    // Single-instance check: If an instance is already running for this slug, activate it and exit
+    QString serverName = QString("googleapp-single-%1-%2").arg(getuid()).arg(earlySlug);
+    QLocalSocket probeSocket;
+    probeSocket.connectToServer(serverName);
+    if (probeSocket.waitForConnected(400)) {
+        QByteArray activationToken = qgetenv("XDG_ACTIVATION_TOKEN");
+        QString msg = QString("ACTIVATE %1\n").arg(QString::fromUtf8(activationToken));
+        probeSocket.write(msg.toUtf8());
+        probeSocket.waitForBytesWritten(1000);
+        probeSocket.disconnectFromServer();
+        std::cout << "Existing instance found for " << earlySlug.toStdString() << ", bringing window to front." << std::endl;
+        return 0;
+    }
+
+    // No existing instance; setup listener
+    QLocalServer::removeServer(serverName);
+    QLocalServer localServer;
+    if (!localServer.listen(serverName)) {
+        std::cerr << "Warning: Could not start single-instance listener on "
+                  << serverName.toStdString() << ": "
+                  << localServer.errorString().toStdString() << std::endl;
+    }
 
     QCommandLineParser parser;
     parser.setApplicationDescription("GoogleApp Standalone Web App Runner");
@@ -326,6 +379,7 @@ int main(int argc, char *argv[]) {
     QCommandLineOption iconOpt("icon", "Application icon file or name", "icon", "");
     QCommandLineOption profileDirOpt("profile-dir", "Custom persistent profile directory path", "path", "");
     QCommandLineOption uaOpt("user-agent", "Custom HTTP User-Agent string", "ua", "");
+    QCommandLineOption pwStoreOpt("password-store", "Password and token keyring backend (detect, kwallet6, gnome-libsecret, basic)", "store", "detect");
     QCommandLineOption showHeaderOpt("show-web-header", "Keep the web UI top bar visible by default");
 
     parser.addOption(slugOpt);
@@ -334,6 +388,7 @@ int main(int argc, char *argv[]) {
     parser.addOption(iconOpt);
     parser.addOption(profileDirOpt);
     parser.addOption(uaOpt);
+    parser.addOption(pwStoreOpt);
     parser.addOption(showHeaderOpt);
 
     parser.process(app);
@@ -432,6 +487,37 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("initialHideWebHeader", hideWebHeader);
     engine.rootContext()->setContextProperty("storageDir", storageDir);
     engine.rootContext()->setContextProperty("cacheDir", cacheDir);
+
+    // Handle single-instance activation signals when launcher is clicked again
+    QObject::connect(&localServer, &QLocalServer::newConnection, [&]() {
+        QLocalSocket *client = localServer.nextPendingConnection();
+        if (!client) return;
+        QObject::connect(client, &QLocalSocket::readyRead, [client, &engine]() {
+            QByteArray line = client->readLine().trimmed();
+            QString token;
+            if (line.startsWith("ACTIVATE")) {
+                token = QString::fromUtf8(line.mid(8)).trimmed();
+            }
+            if (!token.isEmpty()) {
+                qputenv("XDG_ACTIVATION_TOKEN", token.toUtf8());
+            }
+
+            const auto roots = engine.rootObjects();
+            if (!roots.isEmpty()) {
+                QMetaObject::invokeMethod(roots.first(), "activateWindow");
+                if (auto win = qobject_cast<QQuickWindow*>(roots.first())) {
+                    if (win->visibility() == QWindow::Minimized) {
+                        win->showNormal();
+                    }
+                    win->show();
+                    win->raise();
+                    win->requestActivate();
+                }
+            }
+            client->disconnectFromServer();
+            client->deleteLater();
+        });
+    });
 
     engine.loadData(QByteArray(appWindowQml));
     if (engine.rootObjects().isEmpty()) {

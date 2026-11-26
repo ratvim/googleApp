@@ -204,7 +204,7 @@ class WebAppManager(QMainWindow):
 
         try:
             pkg_res = subprocess.run(
-                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6WebEngineCore", "Qt6Quick", "Qt6Gui"],
+                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6WebEngineCore", "Qt6Network", "Qt6Quick", "Qt6Gui"],
                 capture_output=True,
                 text=True,
             )
