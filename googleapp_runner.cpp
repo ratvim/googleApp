@@ -3,6 +3,8 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickWebEngineProfile>
+#include <QWebEngineClientHints>
+#include <QWebEngineScript>
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include <QIcon>
@@ -11,8 +13,54 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QProcess>
+#include <QMetaObject>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <iostream>
+
+static const char *stealthScriptSource = R"JS(
+(function() {
+    try {
+        // 1. Mask automation webdriver flag
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined,
+            configurable: true
+        });
+
+        // 2. Mock authentic Chrome object and properties expected by Google Sign-In & BotGuard
+        if (!window.chrome) {
+            window.chrome = {};
+        }
+        window.chrome.app = {
+            isInstalled: false,
+            InstallState: { DISABLED: "disabled", INSTALLED: "installed", NOT_INSTALLED: "not_installed" },
+            RunningState: { CANNOT_RUN: "cannot_run", READY_TO_RUN: "ready_to_run", RUNNING: "running" }
+        };
+        window.chrome.csi = function() {};
+        window.chrome.loadTimes = function() {};
+        window.chrome.runtime = {
+            OnInstalledReason: { CHROME_UPDATE: "chrome_update", INSTALL: "install", SHARED_MODULE_UPDATE: "shared_module_update", UPDATE: "update" },
+            OnRestartRequiredReason: { APP_UPDATE: "app_update", OS_UPDATE: "os_update", PERIODIC: "periodic" },
+            PlatformArch: { ARM: "arm", ARM64: "arm64", MIPS: "mips", MIPS64: "mips64", X86_32: "x86-32", X86_64: "x86-64" },
+            PlatformNaclArch: { ARM: "arm", MIPS: "mips", MIPS64: "mips64", X86_32: "x86-32", X86_64: "x86-64" },
+            PlatformOs: { ANDROID: "android", CROS: "cros", LINUX: "linux", MAC: "mac", OPENBSD: "openbsd", WIN: "win" },
+            RequestUpdateCheckStatus: { NO_UPDATE: "no_update", THROTTLED: "throttled", UPDATE_AVAILABLE: "update_available" }
+        };
+
+        // 3. Mock Chrome PDF Viewer & standard browser plugins
+        const mockPlugins = [
+            { name: "PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format" },
+            { name: "Chrome PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format" },
+            { name: "Chromium PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format" },
+            { name: "Microsoft Edge PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format" },
+            { name: "WebKit built-in PDF", filename: "internal-pdf-viewer", description: "Portable Document Format" }
+        ];
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => mockPlugins,
+            configurable: true
+        });
+    } catch(e) {}
+})();
+)JS";
 
 static const char *appWindowQml = R"QML(
 import QtQuick
@@ -252,12 +300,18 @@ Window {
     Shortcut { sequence: "Alt+Left"; onActivated: if (webView.canGoBack) webView.goBack() }
     Shortcut { sequence: "Alt+Right"; onActivated: if (webView.canGoForward) webView.goForward() }
     Shortcut { sequence: "Ctrl+H"; onActivated: { root.webHeaderHidden = !root.webHeaderHidden; webView.applyTopBarVisibility(); } }
+    Shortcut { sequence: "Ctrl+O"; onActivated: Qt.openUrlExternally(webView.url) }
     Shortcut { sequence: "Ctrl+Q"; onActivated: root.close() }
 }
 )QML";
 
 int main(int argc, char *argv[]) {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --password-store=basic --disable-blink-features=AutomationControlled");
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
+        "--no-sandbox "
+        "--password-store=basic "
+        "--disable-blink-features=AutomationControlled "
+        "--enable-features=NetworkService,NetworkServiceInProcess"
+    );
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);
@@ -334,12 +388,40 @@ int main(int argc, char *argv[]) {
     profile.setPersistentCookiesPolicy(QQuickWebEngineProfile::AllowPersistentCookies);
     profile.setPersistentPermissionsPolicy(QQuickWebEngineProfile::PersistentPermissionsPolicy::StoreOnDisk);
     profile.setHttpCacheType(QQuickWebEngineProfile::DiskHttpCache);
+
+    // Chrome 140 User-Agent matching underlying Chromium 140.0.7339.264 engine
     QString userAgent = parser.value(uaOpt);
     if (userAgent.isEmpty()) {
-        // Modern Firefox User-Agent: bypasses Google's embedded WebView / "This browser or app may not be secure" block
-        userAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0";
+        userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
     }
     profile.setHttpUserAgent(userAgent);
+
+    // Set Chrome Client Hints (Sec-CH-UA) to match authentic Google Chrome 140
+    if (auto hints = profile.clientHints()) {
+        QVariantMap brands;
+        brands.insert("Google Chrome", "140.0.7339.264");
+        brands.insert("Chromium", "140.0.7339.264");
+        brands.insert("Not=A?Brand", "24.0.0.0");
+        hints->setFullVersionList(brands);
+        hints->setFullVersion("140.0.7339.264");
+        hints->setPlatform("Linux");
+        hints->setArch("x86");
+        hints->setBitness("64");
+        hints->setIsMobile(false);
+    }
+
+    // Inject stealth script into main world at DocumentCreation to satisfy Google Sign-In checks
+    QWebEngineScript stealthScript;
+    stealthScript.setName("stealth_script");
+    stealthScript.setSourceCode(stealthScriptSource);
+    stealthScript.setInjectionPoint(QWebEngineScript::DocumentCreation);
+    stealthScript.setWorldId(QWebEngineScript::MainWorld);
+    stealthScript.setRunsOnSubFrames(true);
+
+    QObject *scriptsCollection = profile.property("userScripts").value<QObject*>();
+    if (scriptsCollection) {
+        QMetaObject::invokeMethod(scriptsCollection, "insert", Q_ARG(QWebEngineScript, stealthScript));
+    }
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("webProfile", &profile);

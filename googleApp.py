@@ -204,7 +204,7 @@ class WebAppManager(QMainWindow):
 
         try:
             pkg_res = subprocess.run(
-                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6Quick", "Qt6Gui"],
+                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6WebEngineCore", "Qt6Quick", "Qt6Gui"],
                 capture_output=True,
                 text=True,
             )
@@ -214,7 +214,7 @@ class WebAppManager(QMainWindow):
             flags = shlex.split(pkg_res.stdout)
             local_bin = os.path.join(script_dir, "googleapp-runner")
             compile_res = subprocess.run(
-                ["g++", "-O2", cpp_file] + flags + ["-o", local_bin],
+                ["g++", "-O2", "-fPIC", cpp_file] + flags + ["-o", local_bin],
                 capture_output=True,
                 text=True,
             )
