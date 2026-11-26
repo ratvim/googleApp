@@ -20,6 +20,24 @@
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <iostream>
 
+static QString detectWidevinePath() {
+    const QStringList candidates = {
+        "/var/lib/flatpak/app/com.google.Chrome/x86_64/stable/active/files/extra/WidevineCdm/_platform_specific/linux_x64/libwidevinecdm.so",
+        "/opt/google/chrome/WidevineCdm/_platform_specific/linux_x64/libwidevinecdm.so",
+        "/opt/google/chrome/libwidevinecdm.so",
+        "/usr/lib/chromium/libwidevinecdm.so",
+        "/usr/lib64/chromium/libwidevinecdm.so",
+        "/usr/lib/qt6/plugins/ppapi/libwidevinecdm.so",
+        QDir::homePath() + "/.local/lib/widevine/libwidevinecdm.so"
+    };
+    for (const QString &path : candidates) {
+        if (QFile::exists(path)) {
+            return path;
+        }
+    }
+    return QString();
+}
+
 static const char *stealthScriptSource = R"JS(
 (function() {
     try {
@@ -320,6 +338,7 @@ Window {
 int main(int argc, char *argv[]) {
     QString pwStore = "detect";
     QString earlySlug = "web-app";
+    QString customWidevine;
 
     for (int i = 1; i < argc; ++i) {
         QString a = QString::fromUtf8(argv[i]);
@@ -331,16 +350,25 @@ int main(int argc, char *argv[]) {
             earlySlug = a.mid(7);
         } else if (a == "--slug" && i + 1 < argc) {
             earlySlug = QString::fromUtf8(argv[i + 1]);
+        } else if (a.startsWith("--widevine-path=")) {
+            customWidevine = a.mid(16);
+        } else if (a == "--widevine-path" && i + 1 < argc) {
+            customWidevine = QString::fromUtf8(argv[i + 1]);
         }
     }
 
-    // Set Chromium flags with KWallet / KeepSecret password-store integration
+    // Auto-detect or apply Widevine DRM module for media streaming (Hotstar, Netflix, etc.)
+    QString widevinePath = !customWidevine.isEmpty() ? customWidevine : detectWidevinePath();
+    QString widevineFlag = !widevinePath.isEmpty() ? QString(" --widevine-path=%1").arg(widevinePath) : QString();
+
+    // Set Chromium flags with KWallet / KeepSecret password-store and Widevine DRM
     QString chromiumFlags = QString(
         "--no-sandbox "
-        "--password-store=%1 "
+        "--password-store=%1"
+        "%2 "
         "--disable-blink-features=AutomationControlled "
         "--enable-features=NetworkService,NetworkServiceInProcess"
-    ).arg(pwStore);
+    ).arg(pwStore, widevineFlag);
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlags.toUtf8());
 
     QtWebEngineQuick::initialize();
@@ -380,6 +408,7 @@ int main(int argc, char *argv[]) {
     QCommandLineOption profileDirOpt("profile-dir", "Custom persistent profile directory path", "path", "");
     QCommandLineOption uaOpt("user-agent", "Custom HTTP User-Agent string", "ua", "");
     QCommandLineOption pwStoreOpt("password-store", "Password and token keyring backend (detect, kwallet6, gnome-libsecret, basic)", "store", "detect");
+    QCommandLineOption widevineOpt("widevine-path", "Path to libwidevinecdm.so DRM module", "path", "");
     QCommandLineOption showHeaderOpt("show-web-header", "Keep the web UI top bar visible by default");
 
     parser.addOption(slugOpt);
@@ -389,6 +418,7 @@ int main(int argc, char *argv[]) {
     parser.addOption(profileDirOpt);
     parser.addOption(uaOpt);
     parser.addOption(pwStoreOpt);
+    parser.addOption(widevineOpt);
     parser.addOption(showHeaderOpt);
 
     parser.process(app);
