@@ -8,15 +8,18 @@
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include <QIcon>
+#include <QPixmap>
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
+#include <QUrl>
 #include <QStandardPaths>
 #include <QProcess>
 #include <QMetaObject>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <unistd.h>
+#include <KF6/KWindowSystem/kwindoweffects.h>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <iostream>
 
@@ -97,10 +100,16 @@ Window {
     minimumWidth: 500
     minimumHeight: 380
     title: appName
-    flags: Qt.Window | Qt.FramelessWindowHint
-    color: "#181a1f"
+    flags: isFrameless ? (Qt.Window | Qt.FramelessWindowHint) : Qt.Window
+    color: sysPalette.window
+
+    SystemPalette {
+        id: sysPalette
+        colorGroup: SystemPalette.Active
+    }
 
     property bool webHeaderHidden: initialHideWebHeader
+    property bool frameless: isFrameless
 
     function activateWindow() {
         if (root.visibility === Window.Minimized) {
@@ -111,213 +120,359 @@ Window {
         root.requestActivate()
     }
 
-    // Created Application Bar (Custom Native Header with Window Controls)
-    Rectangle {
-        id: appHeader
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: 38
-        color: "#1e222b"
-        z: 100
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
+        // In-App Header & Navigation Bar
         Rectangle {
-            anchors.bottom: parent.bottom
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: 1
-            color: Qt.rgba(1, 1, 1, 0.08)
-        }
+            id: appHeader
+            Layout.fillWidth: true
+            height: isFrameless ? 38 : 34
+            color: sysPalette.window
+            z: 100
 
-        DragHandler {
-            target: null
-            onActiveChanged: if (active) root.startSystemMove()
-        }
-
-        TapHandler {
-            gesturePolicy: TapHandler.WithinBounds
-            onDoubleTapped: {
-                if (root.visibility === Window.Maximized) {
-                    root.showNormal()
-                } else {
-                    root.showMaximized()
-                }
-            }
-        }
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 12
-            anchors.rightMargin: 0
-            spacing: 8
-
-            // App Icon & Name
-            RowLayout {
-                spacing: 8
-                Image {
-                    source: (typeof appIcon !== "undefined" && appIcon && appIcon !== "") ? (appIcon.indexOf("/") === 0 ? "file://" + appIcon : appIcon) : undefined
-                    visible: typeof appIcon !== "undefined" && appIcon !== ""
-                    Layout.preferredWidth: 20
-                    Layout.preferredHeight: 20
-                    fillMode: Image.PreserveAspectFit
-                }
-                Text {
-                    text: appName
-                    color: "#e6edf3"
-                    font.pixelSize: 13
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideRight
-                }
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.12)
             }
 
-            // Flexible Spacer for Draggable Header
-            Item {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+            DragHandler {
+                enabled: isFrameless
+                target: null
+                onActiveChanged: if (active) root.startSystemMove()
             }
 
-            // Window Action Buttons (Minimize, Maximize, Close)
-            RowLayout {
-                spacing: 0
-                Layout.alignment: Qt.AlignRight
-
-                // Minimize
-                Rectangle {
-                    Layout.preferredWidth: 46; Layout.preferredHeight: 38
-                    color: minMouse.containsMouse ? "#2d3342" : "transparent"
-                    Text { text: "—"; color: "#c0caf5"; font.pixelSize: 12; anchors.centerIn: parent }
-                    MouseArea {
-                        id: minMouse; anchors.fill: parent; hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.showMinimized()
+            TapHandler {
+                enabled: isFrameless
+                gesturePolicy: TapHandler.WithinBounds
+                onDoubleTapped: {
+                    if (root.visibility === Window.Maximized) {
+                        root.showNormal()
+                    } else {
+                        root.showMaximized()
                     }
                 }
+            }
 
-                // Maximize / Restore
-                Rectangle {
-                    Layout.preferredWidth: 46; Layout.preferredHeight: 38
-                    color: maxMouse.containsMouse ? "#2d3342" : "transparent"
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 10
+                anchors.rightMargin: isFrameless ? 0 : 10
+                spacing: 6
+
+                // App Icon & Name
+                RowLayout {
+                    spacing: 8
+                    Image {
+                        source: appIconUrl
+                        visible: appIconUrl !== ""
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        fillMode: Image.PreserveAspectFit
+                    }
                     Text {
-                        text: root.visibility === Window.Maximized ? "❐" : "□"
-                        color: "#c0caf5"
-                        font.pixelSize: 12
-                        anchors.centerIn: parent
+                        text: appName
+                        color: sysPalette.windowText
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
                     }
-                    MouseArea {
-                        id: maxMouse; anchors.fill: parent; hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (root.visibility === Window.Maximized) {
-                                root.showNormal()
-                            } else {
-                                root.showMaximized()
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 18
+                    color: Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.15)
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
+                }
+
+                // In-App Navigation Controls (Back, Forward, Reload, Home)
+                RowLayout {
+                    spacing: 4
+
+                    // Back button
+                    Rectangle {
+                        Layout.preferredWidth: 28; Layout.preferredHeight: 26
+                        radius: 4
+                        color: backMouse.containsMouse && webView.canGoBack ? Qt.rgba(sysPalette.highlight.r, sysPalette.highlight.g, sysPalette.highlight.b, 0.2) : "transparent"
+                        opacity: webView.canGoBack ? 1.0 : 0.4
+                        Text {
+                            text: "◀"
+                            color: sysPalette.windowText
+                            font.pixelSize: 11
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: backMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: webView.canGoBack ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: if (webView.canGoBack) webView.goBack()
+                        }
+                        ToolTip.visible: backMouse.containsMouse
+                        ToolTip.text: "Go Back (Alt+Left)"
+                    }
+
+                    // Forward button
+                    Rectangle {
+                        Layout.preferredWidth: 28; Layout.preferredHeight: 26
+                        radius: 4
+                        color: fwdMouse.containsMouse && webView.canGoForward ? Qt.rgba(sysPalette.highlight.r, sysPalette.highlight.g, sysPalette.highlight.b, 0.2) : "transparent"
+                        opacity: webView.canGoForward ? 1.0 : 0.4
+                        Text {
+                            text: "▶"
+                            color: sysPalette.windowText
+                            font.pixelSize: 11
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: fwdMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: webView.canGoForward ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: if (webView.canGoForward) webView.goForward()
+                        }
+                        ToolTip.visible: fwdMouse.containsMouse
+                        ToolTip.text: "Go Forward (Alt+Right)"
+                    }
+
+                    // Reload button
+                    Rectangle {
+                        Layout.preferredWidth: 28; Layout.preferredHeight: 26
+                        radius: 4
+                        color: reloadMouse.containsMouse ? Qt.rgba(sysPalette.highlight.r, sysPalette.highlight.g, sysPalette.highlight.b, 0.2) : "transparent"
+                        Text {
+                            text: "↺"
+                            color: sysPalette.windowText
+                            font.pixelSize: 14
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: reloadMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: webView.reload()
+                        }
+                        ToolTip.visible: reloadMouse.containsMouse
+                        ToolTip.text: "Reload Page (F5 / Ctrl+R)"
+                    }
+
+                    // Home button
+                    Rectangle {
+                        Layout.preferredWidth: 28; Layout.preferredHeight: 26
+                        radius: 4
+                        color: homeMouse.containsMouse ? Qt.rgba(sysPalette.highlight.r, sysPalette.highlight.g, sysPalette.highlight.b, 0.2) : "transparent"
+                        Text {
+                            text: "⌂"
+                            color: sysPalette.windowText
+                            font.pixelSize: 13
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: homeMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: webView.url = appUrl
+                        }
+                        ToolTip.visible: homeMouse.containsMouse
+                        ToolTip.text: "Return to Home Page"
+                    }
+                }
+
+                // Spacer
+                Item { Layout.fillWidth: true }
+
+                // Quick Tools (Open in System Browser, Toggle Web Bar)
+                RowLayout {
+                    spacing: 4
+
+                    Rectangle {
+                        Layout.preferredWidth: 28; Layout.preferredHeight: 26
+                        radius: 4
+                        color: extMouse.containsMouse ? Qt.rgba(sysPalette.highlight.r, sysPalette.highlight.g, sysPalette.highlight.b, 0.2) : "transparent"
+                        Text { text: "↗"; color: sysPalette.windowText; font.pixelSize: 13; anchors.centerIn: parent }
+                        MouseArea {
+                            id: extMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.openUrlExternally(webView.url)
+                        }
+                        ToolTip.visible: extMouse.containsMouse
+                        ToolTip.text: "Open Current Page in Default Browser (Ctrl+O)"
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 28; Layout.preferredHeight: 26
+                        radius: 4
+                        color: toggleMouse.containsMouse ? Qt.rgba(sysPalette.highlight.r, sysPalette.highlight.g, sysPalette.highlight.b, 0.2) : "transparent"
+                        Text { text: root.webHeaderHidden ? "👁" : "⊘"; color: sysPalette.windowText; font.pixelSize: 12; anchors.centerIn: parent }
+                        MouseArea {
+                            id: toggleMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { root.webHeaderHidden = !root.webHeaderHidden; webView.applyTopBarVisibility(); }
+                        }
+                        ToolTip.visible: toggleMouse.containsMouse
+                        ToolTip.text: root.webHeaderHidden ? "Show Web Header (Ctrl+H)" : "Hide Web Header (Ctrl+H)"
+                    }
+                }
+
+                // Frameless-only System Window Buttons (Follows System Breeze Colors)
+                RowLayout {
+                    visible: isFrameless
+                    spacing: 0
+
+                    // Minimize
+                    Rectangle {
+                        Layout.preferredWidth: 44; Layout.preferredHeight: 38
+                        color: minMouse.containsMouse ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.12) : "transparent"
+                        Rectangle {
+                            width: 10; height: 1.5; color: sysPalette.windowText; anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: minMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.showMinimized()
+                        }
+                    }
+
+                    // Maximize / Restore
+                    Rectangle {
+                        Layout.preferredWidth: 44; Layout.preferredHeight: 38
+                        color: maxMouse.containsMouse ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.12) : "transparent"
+                        Rectangle {
+                            width: 10; height: 10; color: "transparent"
+                            border.width: 1.5; border.color: sysPalette.windowText; anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: maxMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (root.visibility === Window.Maximized) {
+                                    root.showNormal()
+                                } else {
+                                    root.showMaximized()
+                                }
                             }
                         }
                     }
-                }
 
-                // Close
-                Rectangle {
-                    Layout.preferredWidth: 46; Layout.preferredHeight: 38
-                    color: closeMouse.containsMouse ? "#e81123" : "transparent"
-                    Text { text: "✕"; color: "#ffffff"; font.pixelSize: 13; anchors.centerIn: parent }
-                    MouseArea {
-                        id: closeMouse; anchors.fill: parent; hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.close()
+                    // Close
+                    Rectangle {
+                        Layout.preferredWidth: 44; Layout.preferredHeight: 38
+                        color: closeMouse.containsMouse ? "#e81123" : "transparent"
+                        Text { text: "✕"; color: closeMouse.containsMouse ? "#ffffff" : sysPalette.windowText; font.pixelSize: 13; anchors.centerIn: parent }
+                        MouseArea {
+                            id: closeMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.close()
+                        }
                     }
                 }
             }
         }
-    }
 
-    // Embedded Web Application View
-    WebEngineView {
-        id: webView
-        anchors.top: appHeader.bottom
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        profile: webProfile
-        url: (typeof appUrl !== "undefined" && appUrl && appUrl !== "") ? appUrl : undefined
+        // Embedded Web Application View
+        WebEngineView {
+            id: webView
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            profile: webProfile
+            url: (typeof appUrl !== "undefined" && appUrl && appUrl !== "") ? appUrl : undefined
 
-        settings.javascriptEnabled: true
-        settings.pluginsEnabled: true
-        settings.fullScreenSupportEnabled: true
-        settings.localContentCanAccessRemoteUrls: true
-        settings.localStorageEnabled: true
-        settings.javascriptCanAccessClipboard: true
-        settings.allowWindowActivationFromJavaScript: true
-        settings.webGLEnabled: true
-        settings.accelerated2dCanvasEnabled: true
+            settings.javascriptEnabled: true
+            settings.pluginsEnabled: true
+            settings.fullScreenSupportEnabled: true
+            settings.localContentCanAccessRemoteUrls: true
+            settings.localStorageEnabled: true
+            settings.javascriptCanAccessClipboard: true
+            settings.allowWindowActivationFromJavaScript: true
+            settings.webGLEnabled: true
+            settings.accelerated2dCanvasEnabled: true
 
-        function applyTopBarVisibility() {
-            var css = "#gb, header#gb, .gb_Fd, #masthead-container, #masthead, ytd-masthead, ytmusic-nav-bar, div[role='banner'], header[role='banner'] { display: none !important; } body, html { margin-top: 0 !important; padding-top: 0 !important; } #content, #page-manager, ytd-app { margin-top: 0 !important; padding-top: 0 !important; }";
-            var js = "(function() { var sid = '__googleapp_topbar_style__'; var el = document.getElementById(sid); if (" + (root.webHeaderHidden ? "true" : "false") + ") { if (!el) { el = document.createElement('style'); el.id = sid; el.textContent = " + JSON.stringify(css) + "; document.head.appendChild(el); } } else { if (el) el.remove(); } })();";
-            webView.runJavaScript(js);
-        }
+            function applyTopBarVisibility() {
+                var css = "#gb, header#gb, .gb_Fd, #masthead-container, #masthead, ytd-masthead, ytmusic-nav-bar, div[role='banner'], header[role='banner'] { display: none !important; } body, html { margin-top: 0 !important; padding-top: 0 !important; } #content, #page-manager, ytd-app { margin-top: 0 !important; padding-top: 0 !important; }";
+                var js = "(function() { var sid = '__googleapp_topbar_style__'; var el = document.getElementById(sid); if (" + (root.webHeaderHidden ? "true" : "false") + ") { if (!el) { el = document.createElement('style'); el.id = sid; el.textContent = " + JSON.stringify(css) + "; document.head.appendChild(el); } } else { if (el) el.remove(); } })();";
+                webView.runJavaScript(js);
+            }
 
-        onLoadingChanged: function(loadRequest) {
-            if (loadRequest.status === WebEngineView.LoadSucceededStatus) {
-                applyTopBarVisibility();
+            onLoadingChanged: function(loadRequest) {
+                if (loadRequest.status === WebEngineView.LoadSucceededStatus) {
+                    applyTopBarVisibility();
+                }
+            }
+
+            onPermissionRequested: function(request) {
+                request.grant();
+            }
+
+            onFullScreenRequested: function(request) {
+                if (request.toggleOn) {
+                    root.showFullScreen();
+                } else {
+                    root.showNormal();
+                }
+                request.accept();
+            }
+
+            onNewWindowRequested: function(request) {
+                var target = request.requestedUrl.toString();
+                // If it's an authentication or service internal flow, keep inside webView
+                if (target.indexOf("accounts.google.com") !== -1 ||
+                    target.indexOf("login") !== -1 ||
+                    target.indexOf("auth") !== -1 ||
+                    target.indexOf("signin") !== -1) {
+                    request.openIn(webView);
+                } else {
+                    // External link: open in user's system web browser so user never loses their app window
+                    Qt.openUrlExternally(request.requestedUrl);
+                }
             }
         }
-
-        onPermissionRequested: function(request) {
-            request.grant();
-        }
-
-        onFullScreenRequested: function(request) {
-            if (request.toggleOn) {
-                root.showFullScreen();
-            } else {
-                root.showNormal();
-            }
-            request.accept();
-        }
-
-        onNewWindowRequested: function(request) {
-            request.openIn(webView);
-        }
     }
 
-    // Window Edge Resize Handlers (Borders & Corners)
+    // Window Edge Resize Handlers for Frameless mode
     MouseArea {
+        enabled: isFrameless
         anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; width: 6; z: 200
         cursorShape: Qt.SizeHorCursor
         onPressed: root.startSystemResize(Qt.LeftEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; width: 6; z: 200
         cursorShape: Qt.SizeHorCursor
         onPressed: root.startSystemResize(Qt.RightEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 6; z: 200
         cursorShape: Qt.SizeVerCursor
         onPressed: root.startSystemResize(Qt.TopEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; height: 6; z: 200
         cursorShape: Qt.SizeVerCursor
         onPressed: root.startSystemResize(Qt.BottomEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.top: parent.top; anchors.left: parent.left; width: 12; height: 12; z: 201
         cursorShape: Qt.SizeFDiagCursor
         onPressed: root.startSystemResize(Qt.TopEdge | Qt.LeftEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.top: parent.top; anchors.right: parent.right; width: 12; height: 12; z: 201
         cursorShape: Qt.SizeBDiagCursor
         onPressed: root.startSystemResize(Qt.TopEdge | Qt.RightEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.bottom: parent.bottom; anchors.left: parent.left; width: 12; height: 12; z: 201
         cursorShape: Qt.SizeBDiagCursor
         onPressed: root.startSystemResize(Qt.BottomEdge | Qt.LeftEdge)
     }
     MouseArea {
+        enabled: isFrameless
         anchors.bottom: parent.bottom; anchors.right: parent.right; width: 12; height: 12; z: 201
         cursorShape: Qt.SizeFDiagCursor
         onPressed: root.startSystemResize(Qt.BottomEdge | Qt.RightEdge)
@@ -329,6 +484,7 @@ Window {
     Shortcut { sequence: "Ctrl+R"; onActivated: webView.reload() }
     Shortcut { sequence: "Alt+Left"; onActivated: if (webView.canGoBack) webView.goBack() }
     Shortcut { sequence: "Alt+Right"; onActivated: if (webView.canGoForward) webView.goForward() }
+    Shortcut { sequence: "Alt+Home"; onActivated: webView.url = appUrl }
     Shortcut { sequence: "Ctrl+H"; onActivated: { root.webHeaderHidden = !root.webHeaderHidden; webView.applyTopBarVisibility(); } }
     Shortcut { sequence: "Ctrl+O"; onActivated: Qt.openUrlExternally(webView.url) }
     Shortcut { sequence: "Ctrl+Q"; onActivated: root.close() }
@@ -339,6 +495,7 @@ int main(int argc, char *argv[]) {
     QString pwStore = "detect";
     QString earlySlug = "web-app";
     QString customWidevine;
+    bool framelessRequested = false;
 
     for (int i = 1; i < argc; ++i) {
         QString a = QString::fromUtf8(argv[i]);
@@ -354,6 +511,8 @@ int main(int argc, char *argv[]) {
             customWidevine = a.mid(16);
         } else if (a == "--widevine-path" && i + 1 < argc) {
             customWidevine = QString::fromUtf8(argv[i + 1]);
+        } else if (a == "--frameless") {
+            framelessRequested = true;
         }
     }
 
@@ -409,6 +568,7 @@ int main(int argc, char *argv[]) {
     QCommandLineOption uaOpt("user-agent", "Custom HTTP User-Agent string", "ua", "");
     QCommandLineOption pwStoreOpt("password-store", "Password and token keyring backend (detect, kwallet6, gnome-libsecret, basic)", "store", "detect");
     QCommandLineOption widevineOpt("widevine-path", "Path to libwidevinecdm.so DRM module", "path", "");
+    QCommandLineOption framelessOpt("frameless", "Use frameless custom titlebar instead of native system frame");
     QCommandLineOption showHeaderOpt("show-web-header", "Keep the web UI top bar visible by default");
 
     parser.addOption(slugOpt);
@@ -419,6 +579,7 @@ int main(int argc, char *argv[]) {
     parser.addOption(uaOpt);
     parser.addOption(pwStoreOpt);
     parser.addOption(widevineOpt);
+    parser.addOption(framelessOpt);
     parser.addOption(showHeaderOpt);
 
     parser.process(app);
@@ -427,32 +588,12 @@ int main(int argc, char *argv[]) {
     QString name = parser.value(nameOpt);
     QString url = parser.value(urlOpt);
     QString icon = parser.value(iconOpt);
+    bool isFrameless = parser.isSet(framelessOpt) || framelessRequested;
     bool hideWebHeader = !parser.isSet(showHeaderOpt);
 
     QString desktopId = QString("googleapp-%1").arg(slug);
     app.setDesktopFileName(desktopId);
     app.setApplicationName(name);
-
-    QString resolvedIcon = icon;
-    if (!icon.isEmpty()) {
-        if (QFile::exists(icon)) {
-            app.setWindowIcon(QIcon(icon));
-            resolvedIcon = icon;
-        } else {
-            QIcon themeIcon = QIcon::fromTheme(icon);
-            if (!themeIcon.isNull()) {
-                app.setWindowIcon(themeIcon);
-            }
-            QProcess proc;
-            proc.start("kiconfinder6", QStringList() << icon);
-            if (proc.waitForFinished(800) && proc.exitCode() == 0) {
-                QString outPath = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
-                if (!outPath.isEmpty() && QFile::exists(outPath)) {
-                    resolvedIcon = outPath;
-                }
-            }
-        }
-    }
 
     // Standardized persistent profile & cache directories
     QString storageDir = parser.value(profileDirOpt);
@@ -463,6 +604,60 @@ int main(int argc, char *argv[]) {
 
     QDir().mkpath(storageDir);
     QDir().mkpath(cacheDir);
+
+    // Thorough Icon Resolution (File path, Theme Icon, or Cached Pixmap)
+    QString resolvedIconPath;
+    QIcon winIcon;
+    if (!icon.isEmpty()) {
+        if (QFile::exists(icon)) {
+            resolvedIconPath = QFileInfo(icon).absoluteFilePath();
+            winIcon = QIcon(resolvedIconPath);
+        } else {
+            winIcon = QIcon::fromTheme(icon);
+            QProcess proc;
+            proc.start("kiconfinder6", QStringList() << icon);
+            if (proc.waitForFinished(600) && proc.exitCode() == 0) {
+                QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+                if (!out.isEmpty() && QFile::exists(out)) {
+                    resolvedIconPath = out;
+                }
+            }
+        }
+    }
+
+    if (resolvedIconPath.isEmpty() && !icon.isEmpty()) {
+        QString home = QDir::homePath();
+        const QStringList exts = {"png", "svg", "ico", "jpg", "jpeg", "webp"};
+        for (const QString &ext : exts) {
+            QString p1 = QString("%1/.local/share/icons/hicolor/128x128/apps/%2.%3").arg(home, icon, ext);
+            if (QFile::exists(p1)) {
+                resolvedIconPath = p1;
+                winIcon = QIcon(p1);
+                break;
+            }
+            QString p2 = QString("%1/.local/share/icons/hicolor/scalable/apps/%2.%3").arg(home, icon, ext);
+            if (QFile::exists(p2)) {
+                resolvedIconPath = p2;
+                winIcon = QIcon(p2);
+                break;
+            }
+        }
+    }
+
+    if (resolvedIconPath.isEmpty() && !winIcon.isNull()) {
+        QString cachedPng = QString("%1/app_icon.png").arg(cacheDir);
+        QPixmap pix = winIcon.pixmap(128, 128);
+        if (!pix.isNull()) {
+            pix.save(cachedPng, "PNG");
+            resolvedIconPath = cachedPng;
+        }
+    }
+
+    if (!winIcon.isNull()) {
+        app.setWindowIcon(winIcon);
+    }
+
+    QString appIconUrl = !resolvedIconPath.isEmpty() ? QUrl::fromLocalFile(resolvedIconPath).toString() : "";
 
     // Explicitly configure disk-backed persistent profile in C++
     QQuickWebEngineProfile profile;
@@ -513,7 +708,8 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("appSlug", slug);
     engine.rootContext()->setContextProperty("appName", name);
     engine.rootContext()->setContextProperty("appUrl", url);
-    engine.rootContext()->setContextProperty("appIcon", resolvedIcon);
+    engine.rootContext()->setContextProperty("appIconUrl", appIconUrl);
+    engine.rootContext()->setContextProperty("isFrameless", isFrameless);
     engine.rootContext()->setContextProperty("initialHideWebHeader", hideWebHeader);
     engine.rootContext()->setContextProperty("storageDir", storageDir);
     engine.rootContext()->setContextProperty("cacheDir", cacheDir);
@@ -553,6 +749,15 @@ int main(int argc, char *argv[]) {
     if (engine.rootObjects().isEmpty()) {
         std::cerr << "Failed to load GoogleApp window QML" << std::endl;
         return -1;
+    }
+
+    // Apply native KDE KWin blur and contrast effects if available
+    if (auto win = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+        if (!winIcon.isNull()) {
+            win->setIcon(winIcon);
+        }
+        KWindowEffects::enableBlurBehind(win, true);
+        KWindowEffects::enableBackgroundContrast(win, true);
     }
 
     return app.exec();

@@ -204,7 +204,7 @@ class WebAppManager(QMainWindow):
 
         try:
             pkg_res = subprocess.run(
-                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6WebEngineCore", "Qt6Network", "Qt6Quick", "Qt6Gui"],
+                ["pkg-config", "--cflags", "--libs", "Qt6WebEngineQuick", "Qt6WebEngineCore", "Qt6Network", "Qt6Quick", "Qt6Gui", "KF6WindowSystem"],
                 capture_output=True,
                 text=True,
             )
@@ -612,7 +612,7 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(3, 170)
+        self.table.setColumnWidth(3, 230)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.table.verticalHeader().setVisible(False)
@@ -659,12 +659,18 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
             launch_btn.setStyleSheet("background-color: #26a269; color: white; padding: 4px 8px;")
             launch_btn.clicked.connect(lambda _, s=app["slug"]: self.launch_app(s))
 
+            icon_btn = QPushButton("🎨 Icon")
+            icon_btn.setStyleSheet("background-color: #3584e4; color: white; padding: 4px 8px;")
+            icon_btn.setToolTip("Change custom icon for this app")
+            icon_btn.clicked.connect(lambda _, a=app: self.change_app_icon(a))
+
             del_btn = QPushButton("✕")
             del_btn.setStyleSheet("background-color: #c01c28; color: white; padding: 4px 8px;")
             del_btn.setToolTip("Uninstall this application")
             del_btn.clicked.connect(lambda _, s=app["slug"], n=app["name"]: self.uninstall_app(s, n))
 
             actions_layout.addWidget(launch_btn)
+            actions_layout.addWidget(icon_btn)
             actions_layout.addWidget(del_btn)
             self.table.setCellWidget(row, 3, actions_widget)
 
@@ -710,12 +716,12 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
                 # Check custom/downloaded file
                 png_path = os.path.join(self.icon_dir, f"{icon_name}.png")
                 svg_path = os.path.join(self.icon_dir, f"{icon_name}.svg")
-                if os.path.isfile(png_path):
+                if os.path.isfile(icon_name):
+                    icon_path = icon_name
+                elif os.path.isfile(png_path):
                     icon_path = png_path
                 elif os.path.isfile(svg_path):
                     icon_path = svg_path
-                elif os.path.isfile(icon_name):
-                    icon_path = icon_name
                 elif shutil.which("kiconfinder6"):
                     res = subprocess.run(["kiconfinder6", icon_name], capture_output=True, text=True)
                     if res.returncode == 0 and res.stdout.strip() and os.path.isfile(res.stdout.strip()):
@@ -758,6 +764,74 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
             self.remove_from_kmenuedit(f"googleapp-{slug}.desktop")
             self.refresh_desktop_system()
             self.populate_installed_table()
+
+    def change_app_icon(self, app):
+        slug = app["slug"]
+        name = app["name"]
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Select Custom Icon for {name}",
+            "",
+            "Images (*.png *.svg *.ico *.jpg *.jpeg *.webp);;All Files (*)",
+        )
+        if not file_path or not os.path.isfile(file_path):
+            return
+
+        _, ext = os.path.splitext(file_path)
+        if not ext:
+            ext = ".png"
+        target_name = f"googleapp-{slug}"
+        target_file = os.path.join(self.icon_dir, f"{target_name}{ext}")
+
+        try:
+            shutil.copy2(file_path, target_file)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not copy icon file:\n{e}")
+            return
+
+        # Invalidate any cached runner icon
+        cached_icon = os.path.expanduser(f"~/.cache/googleapp/googleapp-{slug}/app_icon.png")
+        if os.path.isfile(cached_icon):
+            try:
+                os.remove(cached_icon)
+            except OSError:
+                pass
+
+        # Update launcher shell script
+        script_file = os.path.join(self.bin_dir, f"googleapp-{slug}.sh")
+        if os.path.isfile(script_file):
+            try:
+                with open(script_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                new_content = re.sub(
+                    r'--icon\s+([^\s"]+|"[^"]*"|\'[^\']*\')',
+                    f'--icon "{target_file}"',
+                    content,
+                )
+                with open(script_file, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                os.chmod(script_file, 0o755)
+            except Exception as e:
+                print(f"Warning: failed to update script {script_file}: {e}")
+
+        # Update desktop entry
+        desktop_file = os.path.join(self.desktop_dir, f"googleapp-{slug}.desktop")
+        if os.path.isfile(desktop_file):
+            try:
+                with open(desktop_file, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                with open(desktop_file, "w", encoding="utf-8") as f:
+                    for line in lines:
+                        if line.startswith("Icon="):
+                            f.write(f"Icon={target_file}\n")
+                        else:
+                            f.write(line)
+            except Exception as e:
+                print(f"Warning: failed to update desktop file {desktop_file}: {e}")
+
+        self.refresh_desktop_system()
+        self.populate_installed_table()
+        QMessageBox.information(self, "Icon Updated", f"Custom icon for '{name}' was successfully updated.")
 
     @staticmethod
     def make_slug(value):
@@ -906,6 +980,7 @@ Keywords=Web;App;Installer;Manager;Google;PWA;
         # Desktop Entry
         categories = CATEGORY_MAP.get(category, "Network;WebBrowser;")
         desktop_path = os.path.join(self.desktop_dir, launcher_id + ".desktop")
+        desktop_icon = runner_icon_target if (runner_icon_target and os.path.isfile(runner_icon_target)) else icon_name
         desktop_content = f"""[Desktop Entry]
 Version=1.0
 Type=Application
@@ -914,7 +989,7 @@ GenericName=Web Application
 Comment=Web application for {name}
 Exec={script_path}
 Terminal=false
-Icon={icon_name}
+Icon={desktop_icon}
 StartupNotify=true
 StartupWMClass={launcher_id}
 Categories={categories}

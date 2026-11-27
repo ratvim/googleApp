@@ -15,12 +15,12 @@ if ! command -v g++ >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! pkg-config --exists Qt6WebEngineQuick Qt6WebEngineCore Qt6Network Qt6Quick Qt6Gui; then
-    echo "❌ Error: Required Qt6 packages (Qt6WebEngineQuick, Qt6WebEngineCore, Qt6Network, Qt6Quick, Qt6Gui) not found via pkg-config."
+if ! pkg-config --exists Qt6WebEngineQuick Qt6WebEngineCore Qt6Network Qt6Quick Qt6Gui KF6WindowSystem; then
+    echo "❌ Error: Required Qt6/KF6 packages not found via pkg-config."
     exit 1
 fi
 
-FLAGS=($(pkg-config --cflags --libs Qt6WebEngineQuick Qt6WebEngineCore Qt6Network Qt6Quick Qt6Gui))
+FLAGS=($(pkg-config --cflags --libs Qt6WebEngineQuick Qt6WebEngineCore Qt6Network Qt6Quick Qt6Gui KF6WindowSystem))
 
 g++ -O2 -fPIC "${SCRIPT_DIR}/googleapp_runner.cpp" "${FLAGS[@]}" -o "${LOCAL_TARGET}"
 
