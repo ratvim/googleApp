@@ -212,22 +212,45 @@ Window {
                 height: 1
             }
 
-            // Window Action Buttons (Minimize, Maximize, Close)
+            // System-styled Window Action Buttons (KDE Plasma Breeze)
             RowLayout {
-                spacing: 0
-                Layout.alignment: Qt.AlignRight
+                spacing: 4
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                Layout.rightMargin: 8
 
-                // Minimize
+                // Minimize Button (Breeze Downward Chevron)
                 Rectangle {
-                    Layout.preferredWidth: 46
-                    Layout.preferredHeight: 38
-                    color: minMouse.containsMouse ? "#2d3342" : "transparent"
-                    Text {
-                        text: "—"
-                        color: "#c0caf5"
-                        font.pixelSize: 12
+                    id: minBtn
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    radius: 14
+                    color: minMouse.pressed ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.25)
+                         : minMouse.containsMouse ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.15)
+                         : "transparent"
+
+                    Canvas {
+                        id: minCanvas
                         anchors.centerIn: parent
+                        width: 14
+                        height: 14
+                        property color iconColor: sysPalette.windowText
+                        onIconColorChanged: requestPaint()
+                        Component.onCompleted: requestPaint()
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.strokeStyle = iconColor;
+                            ctx.lineWidth = 1.6;
+                            ctx.lineCap = "round";
+                            ctx.lineJoin = "round";
+                            ctx.beginPath();
+                            ctx.moveTo(3, 5);
+                            ctx.lineTo(7, 9);
+                            ctx.lineTo(11, 5);
+                            ctx.stroke();
+                        }
                     }
+
                     MouseArea {
                         id: minMouse
                         anchors.fill: parent
@@ -237,17 +260,49 @@ Window {
                     }
                 }
 
-                // Maximize / Restore
+                // Maximize / Restore Button (Breeze Upward Chevron / Diamond)
                 Rectangle {
-                    Layout.preferredWidth: 46
-                    Layout.preferredHeight: 38
-                    color: maxMouse.containsMouse ? "#2d3342" : "transparent"
-                    Text {
-                        text: root.visibility === Window.Maximized ? "❐" : "□"
-                        color: "#c0caf5"
-                        font.pixelSize: 12
+                    id: maxBtn
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    radius: 14
+                    color: maxMouse.pressed ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.25)
+                         : maxMouse.containsMouse ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.15)
+                         : "transparent"
+
+                    Canvas {
+                        id: maxCanvas
                         anchors.centerIn: parent
+                        width: 14
+                        height: 14
+                        property bool isMaximized: root.visibility === Window.Maximized
+                        property color iconColor: sysPalette.windowText
+                        onIsMaximizedChanged: requestPaint()
+                        onIconColorChanged: requestPaint()
+                        Component.onCompleted: requestPaint()
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.strokeStyle = iconColor;
+                            ctx.lineWidth = 1.6;
+                            ctx.lineCap = "round";
+                            ctx.lineJoin = "round";
+                            ctx.beginPath();
+                            if (isMaximized) {
+                                ctx.moveTo(7, 2.5);
+                                ctx.lineTo(11.5, 7);
+                                ctx.lineTo(7, 11.5);
+                                ctx.lineTo(2.5, 7);
+                                ctx.closePath();
+                            } else {
+                                ctx.moveTo(3, 9);
+                                ctx.lineTo(7, 5);
+                                ctx.lineTo(11, 9);
+                            }
+                            ctx.stroke();
+                        }
                     }
+
                     MouseArea {
                         id: maxMouse
                         anchors.fill: parent
@@ -263,17 +318,42 @@ Window {
                     }
                 }
 
-                // Close
+                // Close Button (Breeze Diagonal Cross)
                 Rectangle {
-                    Layout.preferredWidth: 46
-                    Layout.preferredHeight: 38
-                    color: closeMouse.containsMouse ? "#e81123" : "transparent"
-                    Text {
-                        text: "✕"
-                        color: "#ffffff"
-                        font.pixelSize: 13
+                    id: closeBtn
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    radius: 14
+                    color: closeMouse.pressed ? "#b83441"
+                         : closeMouse.containsMouse ? "#da4453"
+                         : "transparent"
+
+                    Canvas {
+                        id: closeCanvas
                         anchors.centerIn: parent
+                        width: 14
+                        height: 14
+                        property bool hovered: closeMouse.containsMouse
+                        property color iconColor: sysPalette.windowText
+                        onHoveredChanged: requestPaint()
+                        onIconColorChanged: requestPaint()
+                        Component.onCompleted: requestPaint()
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.strokeStyle = closeMouse.containsMouse ? "#ffffff" : iconColor;
+                            ctx.lineWidth = 1.6;
+                            ctx.lineCap = "round";
+                            ctx.lineJoin = "round";
+                            ctx.beginPath();
+                            ctx.moveTo(3.5, 3.5);
+                            ctx.lineTo(10.5, 10.5);
+                            ctx.moveTo(10.5, 3.5);
+                            ctx.lineTo(3.5, 10.5);
+                            ctx.stroke();
+                        }
                     }
+
                     MouseArea {
                         id: closeMouse
                         anchors.fill: parent
