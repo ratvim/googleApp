@@ -212,20 +212,20 @@ Window {
                 height: 1
             }
 
-            // System Window Buttons (Minimize, Maximize, Close)
+            // Window Action Buttons (Minimize, Maximize, Close)
             RowLayout {
                 spacing: 0
-                Layout.alignment: Qt.AlignVCenter
+                Layout.alignment: Qt.AlignRight
 
                 // Minimize
                 Rectangle {
-                    Layout.preferredWidth: 44
+                    Layout.preferredWidth: 46
                     Layout.preferredHeight: 38
-                    color: minMouse.containsMouse ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.12) : "transparent"
-                    Rectangle {
-                        width: 10
-                        height: 1.5
-                        color: sysPalette.windowText
+                    color: minMouse.containsMouse ? "#2d3342" : "transparent"
+                    Text {
+                        text: "—"
+                        color: "#c0caf5"
+                        font.pixelSize: 12
                         anchors.centerIn: parent
                     }
                     MouseArea {
@@ -235,22 +235,17 @@ Window {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.showMinimized()
                     }
-                    ToolTip.visible: minMouse.containsMouse
-                    ToolTip.delay: 500
-                    ToolTip.text: "Minimize"
                 }
 
                 // Maximize / Restore
                 Rectangle {
-                    Layout.preferredWidth: 44
+                    Layout.preferredWidth: 46
                     Layout.preferredHeight: 38
-                    color: maxMouse.containsMouse ? Qt.rgba(sysPalette.windowText.r, sysPalette.windowText.g, sysPalette.windowText.b, 0.12) : "transparent"
-                    Rectangle {
-                        width: 10
-                        height: 10
-                        color: "transparent"
-                        border.width: 1.5
-                        border.color: sysPalette.windowText
+                    color: maxMouse.containsMouse ? "#2d3342" : "transparent"
+                    Text {
+                        text: root.visibility === Window.Maximized ? "❐" : "□"
+                        color: "#c0caf5"
+                        font.pixelSize: 12
                         anchors.centerIn: parent
                     }
                     MouseArea {
@@ -266,19 +261,16 @@ Window {
                             }
                         }
                     }
-                    ToolTip.visible: maxMouse.containsMouse
-                    ToolTip.delay: 500
-                    ToolTip.text: root.visibility === Window.Maximized ? "Restore" : "Maximize"
                 }
 
                 // Close
                 Rectangle {
-                    Layout.preferredWidth: 44
+                    Layout.preferredWidth: 46
                     Layout.preferredHeight: 38
-                    color: closeMouse.containsMouse ? "#da4453" : "transparent"
+                    color: closeMouse.containsMouse ? "#e81123" : "transparent"
                     Text {
                         text: "✕"
-                        color: closeMouse.containsMouse ? "#ffffff" : sysPalette.windowText
+                        color: "#ffffff"
                         font.pixelSize: 13
                         anchors.centerIn: parent
                     }
@@ -289,9 +281,6 @@ Window {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.close()
                     }
-                    ToolTip.visible: closeMouse.containsMouse
-                    ToolTip.delay: 500
-                    ToolTip.text: "Close"
                 }
             }
         }
